@@ -48,20 +48,6 @@ def icon_svg(name, size=22):
     }
     return svgs[name].format(s=size)
 
-# ---------- Corporate Plotly layout helper ----------
-def apply_corp_layout(fig, ytitle=None):
-    fig.update_layout(
-        template="plotly_white",
-        font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-                  size=14, color="#111827"),
-        legend=dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"),
-        margin=dict(l=40, r=20, t=10, b=40),
-        xaxis=dict(title="", gridcolor="#E5E7EB"),
-        yaxis=dict(title=(ytitle or ""), zeroline=False, gridcolor="#E5E7EB"),
-        colorway=["#1F2937", "#2563EB", "#EF4444"]  # dark gray, brand blue, signal red
-    )
-    return fig
-
 @st.cache_data
 def load_csv(path, parse_dates=None):
     if not os.path.exists(path):
@@ -113,19 +99,10 @@ with tab1:
             mae_nn  = mean_absolute_error(fe["Actual"], fe["Neural"])
             imp_pct = 100.0 * (mae_lin - mae_nn) / max(mae_lin, 1e-9)
 
-            # --- CARD METRICS ---
-            c1, c2, c3 = st.columns([1,1,1.2])
-            with c1:
-                st.markdown('<div class="metric-wrap">', unsafe_allow_html=True)
-                st.metric("Baseline (Linear) MAE", f"{mae_lin:.3f}")
-                st.markdown('</div>', unsafe_allow_html=True)
-            with c2:
-                st.markdown('<div class="metric-wrap">', unsafe_allow_html=True)
-                st.metric("Neural Net MAE", f"{mae_nn:.3f}", f"−{imp_pct:.2f}%")
-                st.markdown('</div>', unsafe_allow_html=True)
-            with c3:
-                st.markdown('<div class="metric-wrap small-muted">Walk-forward validation; lower MAE is better.</div>',
-                            unsafe_allow_html=True)
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Baseline (Linear) MAE", f"{mae_lin:.3f}")
+            k2.metric("Neural Net MAE", f"{mae_nn:.3f}", f"−{imp_pct:.2f}%")
+            k3.caption("Walk-forward validation; lower MAE is better.")
 
             # Axis selection & overlay chart
             xcol = "Time" if "Time" in fe.columns else fe.index.name or "index"
@@ -138,7 +115,6 @@ with tab1:
                 labels={"value": "kWh", "variable": "Series"},
                 title="Actual vs Predictions (Test Windows)"
             )
-            apply_corp_layout(fig_f, ytitle="kWh")
             st.plotly_chart(fig_f, use_container_width=True)
 
             # Residuals
@@ -149,7 +125,6 @@ with tab1:
                 x="Residual", color="Model", nbins=40, barmode="overlay",
                 title="Residual Distribution (lower spread is better)"
             )
-            apply_corp_layout(fig_r, ytitle="Residual")
             st.plotly_chart(fig_r, use_container_width=True)
         else:
             st.error(f"`forecast_eval.csv` needs columns {sorted(list(need))}. Found: {list(fe.columns)}")
@@ -185,7 +160,6 @@ with tab1:
             fig.add_scatter(x=band["timestamp"], y=band["lo"], mode="lines",
                             name="Uncertainty lo", fill="tonexty", line=dict(width=0))
         fig.update_layout(legend_title_text="")
-        apply_corp_layout(fig, ytitle="kW")
         st.plotly_chart(fig, use_container_width=True)
 
     st.caption("**Result:** Neural network reduced mean absolute error by **13.27%** vs. a linear baseline.")
@@ -220,29 +194,15 @@ with tab2:
             prec = precision_score(y_true, y_pred, zero_division=0) * 100.0
             rec  = recall_score(y_true, y_pred, zero_division=0) * 100.0
 
-            # --- CARD METRICS ---
             d1, d2, d3 = st.columns(3)
-            with d1:
-                st.markdown('<div class="metric-wrap">', unsafe_allow_html=True)
-                st.metric("Accuracy", f"{acc:.1f}%")
-                st.markdown('</div>', unsafe_allow_html=True)
-            with d2:
-                st.markdown('<div class="metric-wrap">', unsafe_allow_html=True)
-                st.metric("Precision", f"{prec:.1f}%")
-                st.markdown('</div>', unsafe_allow_html=True)
-            with d3:
-                st.markdown('<div class="metric-wrap">', unsafe_allow_html=True)
-                st.metric("Recall", f"{rec:.1f}%")
-                st.markdown('</div>', unsafe_allow_html=True)
+            d1.metric("Accuracy", f"{acc:.1f}%")
+            d2.metric("Precision", f"{prec:.1f}%")
+            d3.metric("Recall", f"{rec:.1f}%")
 
             # Confusion matrix
             cm = confusion_matrix(y_true, y_pred)
             cm_df = pd.DataFrame(cm, index=["Actual 0","Actual 1"], columns=["Pred 0","Pred 1"])
             fig_cm = px.imshow(cm_df, text_auto=True, aspect="auto", title="Confusion Matrix")
-            fig_cm.update_layout(template="plotly_white", coloraxis_colorscale="Blues",
-                                 margin=dict(l=40, r=20, t=10, b=40),
-                                 font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-                                           size=14, color="#111827"))
             st.plotly_chart(fig_cm, use_container_width=True)
 
             # Precision–Recall Curve (if probas available)
@@ -250,8 +210,6 @@ with tab2:
                 p, r, _ = precision_recall_curve(y_true, y_proba)
                 pr_df = pd.DataFrame({"precision": p, "recall": r})
                 fig_pr = px.line(pr_df, x="recall", y="precision", title="Precision–Recall Curve")
-                apply_corp_layout(fig_pr, ytitle="Precision")
-                fig_pr.update_xaxes(title="Recall")
                 st.plotly_chart(fig_pr, use_container_width=True)
         else:
             st.warning(f"`fault_eval.csv` missing required columns {sorted(list(need_fd))}. Found: {list(fd.columns)}")
@@ -295,7 +253,6 @@ with tab2:
             df2 = df2.sort_values(x_axis)
 
             fig2 = px.line(df2, x=x_axis, y="generation_kw", title="Signal with Fault Flags")
-            apply_corp_layout(fig2, ytitle="kW")
             faults = df2[df2["fault"] == 1]
             if not faults.empty:
                 fig2.add_scatter(
@@ -329,7 +286,6 @@ with tab3:
             fig3 = px.line(agg, x="timestamp", y=ycols,
                            labels={"value": "kW", "variable": "Metric"},
                            title="Community Output (Total & Average)")
-            apply_corp_layout(fig3, ytitle="kW")
             st.plotly_chart(fig3, use_container_width=True)
     else:
         st.info("Optionally add **data/community_agg.csv** to show community-level KPIs and trends.")
@@ -370,13 +326,11 @@ with tab4:
             with c1:
                 fig_hh = px.line(hh_sel, x="timestamp", y="generation_kw",
                                  title=f"{sel} Output (kW)")
-                apply_corp_layout(fig_hh, ytitle="kW")
                 st.plotly_chart(fig_hh, use_container_width=True)
             with c2:
                 if "avg_generation_kw" in agg_small.columns:
                     fig_avg = px.line(agg_small, x="timestamp", y="avg_generation_kw",
                                       title="Community Average Output (kW)")
-                    apply_corp_layout(fig_avg, ytitle="kW")
                     st.plotly_chart(fig_avg, use_container_width=True)
 
             # Heatmap
@@ -392,12 +346,6 @@ with tab4:
                 labels=dict(x="Hour of Day", y="Household", color="kW"),
                 title="Median Output by Hour"
             )
-            fig_hm.update_layout(template="plotly_white", coloraxis_colorscale="Blues",
-                                 margin=dict(l=40, r=20, t=10, b=40),
-                                 font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-                                           size=14, color="#111827"))
-            fig_hm.update_xaxes(title="Hour of Day")
-            fig_hm.update_yaxes(title="Household")
             st.plotly_chart(fig_hm, use_container_width=True)
             st.caption("Rows with muted midday output hint at **shading**; all-day zeros can indicate **inverter failure**.")
 
@@ -433,7 +381,6 @@ with tab5:
     if not np.isnan(f_mae_b) and not np.isnan(f_mae_n):
         df_perf = pd.DataFrame({"Model": ["Baseline", "Neural"], "MAE": [f_mae_b, f_mae_n]})
         fig_bar = px.bar(df_perf, x="Model", y="MAE", title="Forecasting MAE (lower is better)")
-        apply_corp_layout(fig_bar, ytitle="MAE")
         st.plotly_chart(fig_bar, use_container_width=True)
 
     # Fault metrics (headline)
