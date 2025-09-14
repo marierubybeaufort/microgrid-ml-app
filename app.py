@@ -1,3 +1,4 @@
+# ---------- Imports ----------
 import os, json
 import numpy as np
 import pandas as pd
@@ -5,34 +6,33 @@ import plotly.express as px
 import streamlit as st
 from sklearn.metrics import mean_absolute_error, accuracy_score, precision_score, recall_score
 
+# ---------- Page config (must be first Streamlit call) ----------
+st.set_page_config(
+    page_title="ML for Community Microgrids",
+    page_icon=None,      # no emoji/icon
+    layout="wide"
+)
 
-# ---------- Page ----------
-st.set_page_config(page_title="Community Microgrids", page_icon="⚡", layout="wide")
-st.title("⚡ ML for Community Microgrids: Forecasting & Fault Detection")
-
-import streamlit as st
-
-st.set_page_config(page_title="ML for Community Microgrids", page_icon=None, layout="wide")
-
-# --- minimal corporate CSS ---
+# ---------- Minimal corporate CSS ----------
 st.markdown("""
 <style>
-/* layout + typography */
 .block-container {padding-top: 2rem; padding-bottom: 2.5rem;}
 h1, h2, h3 { color:#111827; letter-spacing:-0.01em; font-weight:800; }
 p, li, .stMarkdown { color:#111827; }
 .small-muted { color:#6B7280; font-size:0.9rem; }
 
-/* metric “cards” */
-.metric-wrap { border:1px solid #E5E7EB; border-radius:14px; background:#FFF;
-               padding:16px 18px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+/* metric cards */
+.metric-wrap {
+  border:1px solid #E5E7EB; border-radius:14px; background:#FFF;
+  padding:16px 18px; box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
 
-/* tidy the toolbar */
+/* hide Streamlit chrome */
 #MainMenu, header [data-testid="stToolbar"], footer {visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- tiny black SVG icons (no emoji) ---
+# ---------- Tiny black SVG icons (no emoji) ----------
 def icon_svg(name, size=22):
     svgs = {
         "bolt": '<svg width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
@@ -48,17 +48,28 @@ def icon_svg(name, size=22):
     }
     return svgs[name].format(s=size)
 
-
 @st.cache_data
 def load_csv(path, parse_dates=None):
     if not os.path.exists(path):
         return None
     return pd.read_csv(path, parse_dates=parse_dates)
 
-# ---------- Tabs (5) ----------
+# ---------- Header ----------
+st.markdown(
+    f'<div style="display:flex;gap:.6rem;align-items:center">'
+    f'{icon_svg("bolt",24)}'
+    f'<h1 style="margin:0">ML for Community Microgrids: Forecasting &amp; Fault Detection</h1>'
+    f'</div>',
+    unsafe_allow_html=True
+)
+
+# ---------- Tabs (corporate labels, no emojis) ----------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "☀️ Forecasting", "🚨 Fault Detection", "🌍 Community Summary",
-    "🏠 Household Explorer", "📊 Model Performance"
+    "Forecasting",
+    "Fault Detection",
+    "Community Summary",
+    "Household Explorer",
+    "Model Performance"
 ])
 
 # ===================== 1) Forecasting =====================
@@ -151,10 +162,8 @@ with tab1:
         fig.update_layout(legend_title_text="")
         st.plotly_chart(fig, use_container_width=True)
 
-    # Always reinforce the headline result
     st.caption("**Result:** Neural network reduced mean absolute error by **13.27%** vs. a linear baseline.")
 
-# ===================== 2) Fault Detection =====================
 # ===================== 2) Fault Detection =====================
 with tab2:
     st.subheader("Fault Detection — Random Forest Ensemble")
@@ -208,7 +217,6 @@ with tab2:
         st.info("Optional: add **data/fault_eval.csv** to compute accuracy/precision/recall here.")
 
     st.caption("**Result:** Fault detector achieved **93.9% accuracy**, balancing sensitivity and precision.")
-
     st.divider()
 
     # ---- B) Time-series visualization from faults.csv (line + red markers)
@@ -231,7 +239,6 @@ with tab2:
             try:
                 df2["timestamp"] = pd.to_datetime(df2["timestamp"])
             except Exception:
-                # fallback: treat as plain category
                 pass
             x_axis = "timestamp"
         else:
@@ -242,7 +249,6 @@ with tab2:
         if "generation_kw" not in df2.columns or "fault" not in df2.columns:
             st.error("`faults.csv` needs at least: generation_kw and fault (0/1). Optional: timestamp.")
         else:
-            # Ensure integer 0/1
             df2["fault"] = df2["fault"].astype(int)
             df2 = df2.sort_values(x_axis)
 
@@ -254,11 +260,9 @@ with tab2:
                     mode="markers", marker=dict(color="red", size=9), name="Fault"
                 )
             st.plotly_chart(fig2, use_container_width=True)
-
             st.caption("Tip: `faults.csv` schema → **timestamp (optional), generation_kw, fault (0/1)**.")
     else:
         st.info("Add **data/faults.csv** to see the time series with red fault markers.")
-
 
 # ===================== 3) Community Summary =====================
 with tab3:
