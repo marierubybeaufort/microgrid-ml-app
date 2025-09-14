@@ -1,0 +1,7 @@
+[theme]
+base = "light"
+primaryColor = "#111827"              # near-black
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FA"  # light gray panel
+textColor = "#111827"
+font = "sans serif"
