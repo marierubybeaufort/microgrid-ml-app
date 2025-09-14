@@ -1,0 +1,15 @@
+{
+  "forecasting": {
+    "baseline": {"mae": 1.270},
+    "neural":   {"mae": 1.100},
+    "improvement_pct": 13.27,
+    "protocol": "Walk-forward validation on multi-week sequences (load, solar, temp). MAE averaged across folds."
+  },
+  "fault_detection": {
+    "accuracy": 93.9,
+    "precision": 92.0,
+    "recall": 95.0,
+    "model": "Decision tree ensemble",
+    "top_features": ["short-term load lags", "solar variability", "time-of-day"]
+  }
+}

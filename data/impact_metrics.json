@@ -1,0 +1,10 @@
+{
+  "assumptions": {
+    "household_baseline_kw": 1.0,
+    "interval_minutes": 15,
+    "households": 50
+  },
+  "energy_loss_kwh": 7.55,
+  "equivalent_homes": 10,
+  "equivalent_hours": 0.76
+}
