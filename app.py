@@ -5,9 +5,49 @@ import plotly.express as px
 import streamlit as st
 from sklearn.metrics import mean_absolute_error, accuracy_score, precision_score, recall_score
 
+
 # ---------- Page ----------
 st.set_page_config(page_title="Community Microgrids", page_icon="⚡", layout="wide")
 st.title("⚡ ML for Community Microgrids: Forecasting & Fault Detection")
+
+import streamlit as st
+
+st.set_page_config(page_title="ML for Community Microgrids", page_icon=None, layout="wide")
+
+# --- minimal corporate CSS ---
+st.markdown("""
+<style>
+/* layout + typography */
+.block-container {padding-top: 2rem; padding-bottom: 2.5rem;}
+h1, h2, h3 { color:#111827; letter-spacing:-0.01em; font-weight:800; }
+p, li, .stMarkdown { color:#111827; }
+.small-muted { color:#6B7280; font-size:0.9rem; }
+
+/* metric “cards” */
+.metric-wrap { border:1px solid #E5E7EB; border-radius:14px; background:#FFF;
+               padding:16px 18px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+
+/* tidy the toolbar */
+#MainMenu, header [data-testid="stToolbar"], footer {visibility:hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+# --- tiny black SVG icons (no emoji) ---
+def icon_svg(name, size=22):
+    svgs = {
+        "bolt": '<svg width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
+                'xmlns="http://www.w3.org/2000/svg"><path d="M13 3L4 14h6l-1 7 9-11h-6l1-7z" '
+                'stroke="#111827" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>',
+        "target": '<svg width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
+                  'xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" '
+                  'stroke="#111827" stroke-width="1.6"/><circle cx="12" cy="12" r="3" '
+                  'fill="#111827"/></svg>',
+        "shield": '<svg width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
+                  'xmlns="http://www.w3.org/2000/svg"><path d="M12 3l8 3v6c0 4.5-3.1 8-8 9-4.9-1-8-4.5-8-9V6l8-3z" '
+                  'stroke="#111827" stroke-width="1.6" fill="none"/></svg>',
+    }
+    return svgs[name].format(s=size)
+
 
 @st.cache_data
 def load_csv(path, parse_dates=None):
