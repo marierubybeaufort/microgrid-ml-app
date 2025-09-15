@@ -429,13 +429,13 @@ else:
         btns = st.columns(3)
         if btns[0].button("⏮ Restart"):
             st.session_state.monitor_idx = 0
-            st.experimental_rerun()
+            st.rerun()
         if btns[1].button("⏪ Step -1"):
             st.session_state.monitor_idx = max(0, st.session_state.monitor_idx - 1)
-            st.experimental_rerun()
+            st.rerun()
         if btns[2].button("⏩ Step +1"):
             st.session_state.monitor_idx = min(len(demo) - 1, st.session_state.monitor_idx + 1)
-            st.experimental_rerun()
+            st.rerun()
 
 
     # ---- B) Time-series visualization from faults.csv (line + red markers)
