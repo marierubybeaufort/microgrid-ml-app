@@ -34,6 +34,7 @@ p, li, .stMarkdown { color:#111827; }
 /* hide Streamlit chrome */
 #MainMenu, header [data-testid="stToolbar"], footer {visibility:hidden;}
 </style>
+
 """, unsafe_allow_html=True)
 
 # ---------- Tiny black SVG icons (no emoji) ----------
