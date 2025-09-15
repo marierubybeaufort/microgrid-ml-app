@@ -324,16 +324,43 @@ else:
         .status-wrap {display:flex;align-items:center;gap:14px;margin:10px 0 6px;}
         .status-dot {width:30px;height:30px;border-radius:50%;box-shadow:0 0 10px rgba(16,185,129,.6) inset, 0 0 14px rgba(16,185,129,.35);}
         .ok {background:#10B981;}
+        .amber {background:#F59E0B; box-shadow:0 0 10px rgba(245,158,11,.65) inset, 0 0 16px rgba(245,158,11,.45); animation:pulseAmber 1.1s ease-in-out infinite;}
         .fault {background:#EF4444;box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55); animation:pulse 1.1s ease-in-out infinite;}
         @keyframes pulse {
           0%   {transform:scale(1);   box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55);}
           50%  {transform:scale(1.08);box-shadow:0 0 14px rgba(239,68,68,.85) inset, 0 0 22px rgba(239,68,68,.7);}
           100% {transform:scale(1);   box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55);}
         }
+        @keyframes pulseAmber {
+          0%   {transform:scale(1);   box-shadow:0 0 10px rgba(245,158,11,.65) inset, 0 0 16px rgba(245,158,11,.45);}
+          50%  {transform:scale(1.08);box-shadow:0 0 14px rgba(245,158,11,.85) inset, 0 0 22px rgba(245,158,11,.65);}
+          100% {transform:scale(1);   box-shadow:0 0 10px rgba(245,158,11,.65) inset, 0 0 16px rgba(245,158,11,.45);}
+        }
         .status-text {font-weight:700;letter-spacing:.2px;}
         .muted {color:#6B7280;font-size:0.92rem;margin-top:-4px;}
         </style>
         """, unsafe_allow_html=True)
+
+        # === NEW: simple imminent-drop heuristic (proactive "amber") ===
+        def imminent_drop_likely(sub_df) -> bool:
+            """
+            Trigger amber when:
+              1) Steep negative slope over the last ~6 points (>= ~8% down),
+              2) AND short MA (4) is below long MA (12) by ~8% (crossover confirmation).
+            Tuned for demo smoothness; change thresholds to be stricter/looser.
+            """
+            g = sub_df["generation_kw"].values
+            n = len(g)
+            if n < 12:
+                return False
+            # relative slope over last 6 points
+            base = max(g[-6], 1e-6)
+            slope_rel = (g[-1] - g[-6]) / base
+            # MA crossover (short vs long)
+            ma_short = np.mean(g[-4:])
+            ma_long  = np.mean(g[-12:])
+            cross = ma_short < (ma_long * 0.92)  # 8% below long MA
+            return (slope_rel < -0.08) and cross
 
         # Keep our place while "playing"
         if "monitor_idx" not in st.session_state:
@@ -345,9 +372,24 @@ else:
         def render_step(i: int):
             row = demo.iloc[i]
             is_fault = int(row["fault"]) == 1
-            label = "🚨 Fault detected" if is_fault else "✅ System healthy"
-            cls = "fault" if is_fault else "ok"
             stamp = row["timestamp"] if "timestamp" in demo.columns else i
+
+            # Tiny rolling window so judges see where we are in the series
+            start = max(0, i - window + 1)
+            sub = demo.iloc[start:i+1]
+
+            # Decide status: RED (fault) > AMBER (imminent drop) > GREEN (ok)
+            if is_fault:
+                label = "🚨 Fault detected"
+                cls = "fault"
+            else:
+                amber = imminent_drop_likely(sub)
+                if amber:
+                    label = "⚠️ Imminent drop likely"
+                    cls = "amber"
+                else:
+                    label = "✅ System healthy"
+                    cls = "ok"
 
             placeholder.markdown(
                 f'<div class="status-wrap"><div class="status-dot {cls}"></div>'
@@ -356,9 +398,7 @@ else:
                 unsafe_allow_html=True
             )
 
-            # Tiny rolling window so judges see where we are in the series
-            start = max(0, i - window + 1)
-            sub = demo.iloc[start:i+1]
+            # Rolling chart
             xcol = "timestamp" if "timestamp" in sub.columns else sub.index.name or "index"
             if xcol == "index":
                 sub = sub.reset_index().rename(columns={"index": "index"})
@@ -442,7 +482,6 @@ else:
             st.caption("Tip: `faults.csv` schema → **timestamp (optional), generation_kw, fault (0/1)**.")
     else:
         st.info("Add **data/faults.csv** to see the time series with red fault markers.")
-
 # ===================== 3) Community Summary =====================
 with tab3:
     st.subheader("Community Impact (50 households)")
