@@ -8,7 +8,7 @@ from sklearn.metrics import mean_absolute_error, accuracy_score, precision_score
 
 # ---------- Page config (must be first Streamlit call) ----------
 st.set_page_config(
-    page_title="ML for Community Microgrids",
+    page_title="ML for Community Microgrids - CYM 2025",
     page_icon="⚡",   # can be an emoji
     layout="wide"
 )
@@ -58,7 +58,7 @@ def load_csv(path, parse_dates=None):
 st.markdown(
     f'<div style="display:flex;gap:.6rem;align-items:center">'
     f'{icon_svg("bolt",24)}'
-    f'<h1 style="margin:0">ML for Community Microgrids: Forecasting &amp; Fault Detection</h1>'
+    f'<h1 style="margin:0">CYM 2025 - ML for Community Microgrids: Forecasting &amp; Fault Detection</h1>'
     f'</div>',
     unsafe_allow_html=True
 )
