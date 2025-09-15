@@ -13,6 +13,10 @@ st.set_page_config(
     layout="wide"
 )
 
+st.title("ML for Community Microgrids")
+st.subheader("Forecasting • Fault Detection • Community Focus")
+
+
 # ---------- Minimal corporate CSS ----------
 st.markdown("""
 <style>
