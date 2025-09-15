@@ -94,9 +94,12 @@ with tab1:
 
         need = {"Actual", "Linear", "Neural"}
         if need.issubset(set(fe.columns)):
-            # KPIs from data
-            mae_lin = mean_absolute_error(fe["Actual"], fe["Linear"])
-            mae_nn  = mean_absolute_error(fe["Actual"], fe["Neural"])
+            # -------- NEW: keep raw copy for honest metrics & residuals --------
+            fe_raw = fe.copy()
+
+            # KPIs from raw (unsmoothed) data
+            mae_lin = mean_absolute_error(fe_raw["Actual"], fe_raw["Linear"])
+            mae_nn  = mean_absolute_error(fe_raw["Actual"], fe_raw["Neural"])
             imp_pct = 100.0 * (mae_lin - mae_nn) / max(mae_lin, 1e-9)
 
             k1, k2, k3 = st.columns(3)
@@ -104,24 +107,56 @@ with tab1:
             k2.metric("Neural Net MAE", f"{mae_nn:.3f}", f"−{imp_pct:.2f}%")
             k3.caption("Walk-forward validation; lower MAE is better.")
 
-            # Axis selection & overlay chart
-            xcol = "Time" if "Time" in fe.columns else fe.index.name or "index"
+            # -------- NEW: gentle display-only cleanup --------
+            fe_display = fe.copy()
+            # clip impossible negatives for display (does NOT affect metrics)
+            for _c in ["Linear", "Neural"]:
+                if _c in fe_display.columns:
+                    fe_display[_c] = fe_display[_c].clip(lower=0)
+
+            # optional light smoothing for visual clarity (does NOT affect metrics)
+            for _c in ["Actual", "Linear", "Neural"]:
+                if _c in fe_display.columns:
+                    fe_display[_c] = fe_display[_c].rolling(5, min_periods=1).mean()
+
+            # -------- NEW: friendlier x-axis --------
+            xcol = "Time" if "Time" in fe_display.columns else fe_display.index.name or "index"
             if xcol == "index":
-                fe = fe.reset_index().rename(columns={"index": "index"})
+                fe_display = fe_display.reset_index().rename(columns={"index": "index"})
                 xcol = "index"
 
+            # If Time is numeric (e.g., 315..680), cast to "Hours since start"
+            x_label = xcol
+            try:
+                # numeric-like?
+                if np.issubdtype(fe_display[xcol].dtype, np.number):
+                    # estimate step (fallback 15 min)
+                    vals = fe_display[xcol].values
+                    if len(vals) > 2:
+                        step = np.median(np.diff(np.unique(vals)))
+                        step_minutes = 15 if not np.isfinite(step) or step <= 0 else 15  # keep 15m default
+                    else:
+                        step_minutes = 15
+                    hours_since = (fe_display[xcol] - fe_display[xcol].min()) * (step_minutes / 60.0)
+                    fe_display["_hours_since_start"] = hours_since
+                    xcol = "_hours_since_start"
+                    x_label = "Hours since start"
+            except Exception:
+                pass
+
+            # Overlay chart (display data)
             fig_f = px.line(
-                fe, x=xcol, y=["Actual", "Linear", "Neural"],
-                labels={"value": "kWh", "variable": "Series"},
+                fe_display, x=xcol, y=["Actual", "Linear", "Neural"],
+                labels={"value": "kWh", "variable": "Series", xcol: x_label},
                 title="Actual vs Predictions (Test Windows)"
             )
             st.plotly_chart(fig_f, use_container_width=True)
 
-            # Residuals
-            fe["res_linear"] = fe["Actual"] - fe["Linear"]
-            fe["res_neural"] = fe["Actual"] - fe["Neural"]
+            # Residuals (from raw, unsmoothed data)
+            fe_raw["res_linear"] = fe_raw["Actual"] - fe_raw["Linear"]
+            fe_raw["res_neural"] = fe_raw["Actual"] - fe_raw["Neural"]
             fig_r = px.histogram(
-                fe.melt(value_vars=["res_linear","res_neural"], var_name="Model", value_name="Residual"),
+                fe_raw.melt(value_vars=["res_linear","res_neural"], var_name="Model", value_name="Residual"),
                 x="Residual", color="Model", nbins=40, barmode="overlay",
                 title="Residual Distribution (lower spread is better)"
             )
@@ -190,6 +225,7 @@ with tab2:
             y_pred = fd["y_pred_rf"].astype(int).values
             y_proba = fd["y_proba_rf"].astype(float).values if "y_proba_rf" in fd.columns else None
 
+            # Base metrics from provided predictions
             acc  = accuracy_score(y_true, y_pred) * 100.0
             prec = precision_score(y_true, y_pred, zero_division=0) * 100.0
             rec  = recall_score(y_true, y_pred, zero_division=0) * 100.0
@@ -199,14 +235,34 @@ with tab2:
             d2.metric("Precision", f"{prec:.1f}%")
             d3.metric("Recall", f"{rec:.1f}%")
 
-            # Confusion matrix
+            # Confusion matrix (base)
             cm = confusion_matrix(y_true, y_pred)
             cm_df = pd.DataFrame(cm, index=["Actual 0","Actual 1"], columns=["Pred 0","Pred 1"])
-            fig_cm = px.imshow(cm_df, text_auto=True, aspect="auto", title="Confusion Matrix")
+            fig_cm = px.imshow(cm_df, text_auto=True, aspect="auto", title="Confusion Matrix (baseline threshold)")
             st.plotly_chart(fig_cm, use_container_width=True)
 
-            # Precision–Recall Curve (if probas available)
+            # -------- NEW: Threshold tuning if probabilities are available --------
             if y_proba is not None:
+                st.markdown("### Threshold Tuning")
+                thr = st.slider("Classification threshold", 0.05, 0.95, 0.50, 0.01)
+                y_pred_tuned = (y_proba >= thr).astype(int)
+
+                acc_t  = accuracy_score(y_true, y_pred_tuned) * 100.0
+                prec_t = precision_score(y_true, y_pred_tuned, zero_division=0) * 100.0
+                rec_t  = recall_score(y_true, y_pred_tuned, zero_division=0) * 100.0
+
+                t1, t2, t3 = st.columns(3)
+                t1.metric("Accuracy (tuned)", f"{acc_t:.1f}%")
+                t2.metric("Precision (tuned)", f"{prec_t:.1f}%")
+                t3.metric("Recall (tuned)", f"{rec_t:.1f}%")
+
+                cm_t = confusion_matrix(y_true, y_pred_tuned)
+                cm_t_df = pd.DataFrame(cm_t, index=["Actual 0","Actual 1"], columns=["Pred 0","Pred 1"])
+                fig_cm_t = px.imshow(cm_t_df, text_auto=True, aspect="auto",
+                                     title=f"Confusion Matrix @ threshold={thr:.2f}")
+                st.plotly_chart(fig_cm_t, use_container_width=True)
+
+                # Precision–Recall Curve
                 p, r, _ = precision_recall_curve(y_true, y_proba)
                 pr_df = pd.DataFrame({"precision": p, "recall": r})
                 fig_pr = px.line(pr_df, x="recall", y="precision", title="Precision–Recall Curve")
