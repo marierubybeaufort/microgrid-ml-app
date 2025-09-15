@@ -275,6 +275,129 @@ with tab2:
     st.caption("**Result:** Fault detector achieved **93.9% accuracy**, balancing sensitivity and precision.")
     st.divider()
 
+    # ==== Live Monitor: big red/green indicator (drop this at the END of tab2) ====
+
+st.divider()
+st.markdown("### Live Monitor — Health / Fault Indicator")
+
+# Re-use the same faults.csv you already visualize (timestamp, generation_kw, fault)
+fpath = "data/faults.csv"
+if not os.path.exists(fpath):
+    st.info("Add **data/faults.csv** (with columns: timestamp [optional], generation_kw, fault=0/1) to run the live demo.")
+else:
+    demo = pd.read_csv(fpath)
+
+    # Be forgiving with column names
+    colmap = {
+        "time": "timestamp", "ts": "timestamp", "date": "timestamp",
+        "kw": "generation_kw", "gen": "generation_kw", "output": "generation_kw", "power_kw": "generation_kw",
+        "label": "fault", "anomaly": "fault", "is_fault": "fault"
+    }
+    for c in list(demo.columns):
+        if c in colmap and colmap[c] not in demo.columns:
+            demo.rename(columns={c: colmap[c]}, inplace=True)
+
+    if "fault" not in demo.columns:
+        st.error("`faults.csv` must include a **fault** column (0/1).")
+    else:
+        # Sort by time/index for deterministic playback
+        if "timestamp" in demo.columns:
+            try:
+                demo["timestamp"] = pd.to_datetime(demo["timestamp"])
+                demo = demo.sort_values("timestamp")
+            except Exception:
+                demo = demo.reset_index(drop=True)
+        else:
+            demo = demo.reset_index(drop=True)
+
+        # --- Controls ---
+        left, right = st.columns([1,2])
+        with left:
+            speed = st.select_slider("Playback speed", options=[0.25, 0.5, 1.0, 2.0, 4.0], value=1.0, help="x realtime (demo)")
+            window = st.slider("Window size (points)", 30, min(300, max(60, len(demo))), 120, 10)
+        with right:
+            run = st.toggle("▶ Play demo", value=False, help="When ON, the indicator updates as we stream the file")
+
+        # --- CSS for the big indicator ---
+        st.markdown("""
+        <style>
+        .status-wrap {display:flex;align-items:center;gap:14px;margin:10px 0 6px;}
+        .status-dot {width:30px;height:30px;border-radius:50%;box-shadow:0 0 10px rgba(16,185,129,.6) inset, 0 0 14px rgba(16,185,129,.35);}
+        .ok {background:#10B981;}
+        .fault {background:#EF4444;box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55); animation:pulse 1.1s ease-in-out infinite;}
+        @keyframes pulse {
+          0%   {transform:scale(1);   box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55);}
+          50%  {transform:scale(1.08);box-shadow:0 0 14px rgba(239,68,68,.85) inset, 0 0 22px rgba(239,68,68,.7);}
+          100% {transform:scale(1);   box-shadow:0 0 10px rgba(239,68,68,.7) inset, 0 0 16px rgba(239,68,68,.55);}
+        }
+        .status-text {font-weight:700;letter-spacing:.2px;}
+        .muted {color:#6B7280;font-size:0.92rem;margin-top:-4px;}
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Keep our place while "playing"
+        if "monitor_idx" not in st.session_state:
+            st.session_state.monitor_idx = 0
+
+        placeholder = st.empty()
+        chartspot = st.empty()
+
+        def render_step(i: int):
+            row = demo.iloc[i]
+            is_fault = int(row["fault"]) == 1
+            label = "🚨 Fault detected" if is_fault else "✅ System healthy"
+            cls = "fault" if is_fault else "ok"
+            stamp = row["timestamp"] if "timestamp" in demo.columns else i
+
+            placeholder.markdown(
+                f'<div class="status-wrap"><div class="status-dot {cls}"></div>'
+                f'<div class="status-text">{label}</div></div>'
+                f'<div class="muted">Now at: <b>{stamp}</b></div>',
+                unsafe_allow_html=True
+            )
+
+            # Tiny rolling window so judges see where we are in the series
+            start = max(0, i - window + 1)
+            sub = demo.iloc[start:i+1]
+            xcol = "timestamp" if "timestamp" in sub.columns else sub.index.name or "index"
+            if xcol == "index":
+                sub = sub.reset_index().rename(columns={"index": "index"})
+                xcol = "index"
+            fig_demo = px.line(sub, x=xcol, y="generation_kw", title="Live stream (demo)")
+            faults_sub = sub[sub["fault"] == 1]
+            if not faults_sub.empty:
+                fig_demo.add_scatter(
+                    x=faults_sub[xcol], y=faults_sub["generation_kw"],
+                    mode="markers", marker=dict(color="red", size=9), name="Fault"
+                )
+            fig_demo.update_layout(showlegend=True, legend_title_text="")
+            chartspot.plotly_chart(fig_demo, use_container_width=True)
+
+        # --- Play / step logic ---
+        if run:
+            import time
+            # play from current index to end
+            for i in range(st.session_state.monitor_idx, len(demo)):
+                st.session_state.monitor_idx = i
+                render_step(i)
+                time.sleep(max(0.05, 0.25 / float(speed)))  # faster speed -> shorter sleep
+        else:
+            # paused – render current frame
+            render_step(st.session_state.monitor_idx)
+
+        # Quick step controls
+        btns = st.columns(3)
+        if btns[0].button("⏮ Restart"):
+            st.session_state.monitor_idx = 0
+            st.experimental_rerun()
+        if btns[1].button("⏪ Step -1"):
+            st.session_state.monitor_idx = max(0, st.session_state.monitor_idx - 1)
+            st.experimental_rerun()
+        if btns[2].button("⏩ Step +1"):
+            st.session_state.monitor_idx = min(len(demo) - 1, st.session_state.monitor_idx + 1)
+            st.experimental_rerun()
+
+
     # ---- B) Time-series visualization from faults.csv (line + red markers)
     fpath = "data/faults.csv"
     if os.path.exists(fpath):
