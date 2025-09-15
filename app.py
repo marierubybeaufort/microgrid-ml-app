@@ -9,7 +9,7 @@ from sklearn.metrics import mean_absolute_error, accuracy_score, precision_score
 # ---------- Page config (must be first Streamlit call) ----------
 st.set_page_config(
     page_title="ML for Community Microgrids",
-    page_icon=None,      # no emoji/icon
+    page_icon="⚡",   # can be an emoji
     layout="wide"
 )
 
