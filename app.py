@@ -329,7 +329,7 @@ with tab2:
 
     # ==== Live Monitor: big red/green indicator (drop this at the END of tab2) ====
 st.divider()
-st.markdown("### Live Monitor — Health / Fault Indicator")
+st.markdown("### Live Monitor — System Fault Indicator")
 
 # Re-use the same faults.csv you already visualize (timestamp, generation_kw, fault)
 fpath = "data/faults.csv"
@@ -408,25 +408,57 @@ else:
         )
 
         # === NEW: simple imminent-drop heuristic (proactive "amber") ===
-        def imminent_drop_likely(sub_df) -> bool:
+                # === Preventive risk heuristic (amber): drift + trend + forecast deviation ===
+        def preventive_risk(sub_df: pd.DataFrame, forecast_df: pd.DataFrame | None) -> bool:
             """
-            Trigger amber when:
-              1) Steep negative slope over the last ~6 points (>= ~8% down),
-              2) AND short MA (4) is below long MA (12) by ~8% (crossover confirmation).
-            Tuned for demo smoothness; change thresholds to be stricter/looser.
+            Amber if EITHER:
+              A) (Drift + Trend)  -> steep short-term negative drift AND short MA below long MA, OR
+              B) (Forecast miss)  -> actual underperforms forecast by > threshold for several recent points.
+
+            Tunable thresholds below are chosen to be reasonably conservative for a demo.
             """
-            g = sub_df["generation_kw"].values
-            n = len(g)
-            if n < 12:
+            if "generation_kw" not in sub_df.columns or len(sub_df) < 12:
                 return False
-            # relative slope over last 6 points
-            base = max(g[-6], 1e-6)
-            slope_rel = (g[-1] - g[-6]) / base
-            # MA crossover (short vs long)
-            ma_short = np.mean(g[-4:])
-            ma_long = np.mean(g[-12:])
-            cross = ma_short < (ma_long * 0.92)  # 8% below long MA
-            return (slope_rel < -0.08) and cross
+
+            g = sub_df["generation_kw"].astype(float).values
+            n = len(g)
+
+            # ---- A) Drift + Trend
+            # Use last 8 points for drift, last 4/12 for MA crossover
+            look_drift = min(8, n - 1)
+            base = max(g[-look_drift-1], 1e-6)
+            slope_rel = (g[-1] - g[-look_drift-1]) / base     # relative change
+            ma_short = np.mean(g[-4:]) if n >= 4 else np.mean(g[-n:])
+            ma_long  = np.mean(g[-12:]) if n >= 12 else np.mean(g[-n:])
+            trend_crossover = ma_short < (ma_long * 0.97)      # 3% below long MA
+            drift_trigger   = slope_rel < -0.05                 # ≥5% drop over the window
+
+            drift_and_trend = drift_trigger and trend_crossover
+
+            # ---- B) Forecast deviation (if available + timestamp present)
+            forecast_trigger = False
+            if forecast_df is not None and "timestamp" in sub_df.columns:
+                try:
+                    # align last ~6 points with nearest forecast (<= 10 minutes tolerance)
+                    tail = sub_df[["timestamp", "generation_kw"]].tail(6).copy()
+                    tail = tail.sort_values("timestamp")
+                    f_aligned = pd.merge_asof(
+                        tail.rename(columns={"timestamp": "ts_actual"}).sort_values("ts_actual"),
+                        forecast_df.rename(columns={"timestamp": "ts_forecast"}).sort_values("ts_forecast"),
+                        left_on="ts_actual", right_on="ts_forecast", direction="nearest", tolerance=pd.Timedelta("10min")
+                    )
+                    # if forecast match exists, compute relative error (actual vs forecast)
+                    if "forecast_kw" in f_aligned.columns:
+                        f_aligned["rel_err"] = (f_aligned["generation_kw"] - f_aligned["forecast_kw"]) / f_aligned["forecast_kw"].clip(lower=1e-6)
+                        # Trigger if at least half of the aligned recent points underperform forecast by >20%
+                        underperf = (f_aligned["rel_err"] < -0.20).sum()
+                        total_aligned = f_aligned["forecast_kw"].notna().sum()
+                        forecast_trigger = (total_aligned >= 3) and (underperf >= max(2, total_aligned // 2))
+                except Exception:
+                    forecast_trigger = False
+
+            return bool(drift_and_trend or forecast_trigger)
+
 
         # Keep our place while "playing"
         if "monitor_idx" not in st.session_state:
