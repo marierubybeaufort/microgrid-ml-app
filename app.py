@@ -368,6 +368,19 @@ else:
         else:
             demo = demo.reset_index(drop=True)
 
+        # --- Optional: load forecast to enable preventive (amber) warnings ---
+        fc_path = "data/forecast.csv"
+        forecast_df = load_csv(fc_path, parse_dates=["timestamp"])
+        if forecast_df is not None and {"timestamp", "generation_kw"}.issubset(forecast_df.columns):
+            forecast_df = forecast_df.rename(columns={"generation_kw": "forecast_kw"})
+            try:
+                forecast_df = forecast_df.sort_values("timestamp")
+            except Exception:
+                forecast_df = None
+        else:
+            forecast_df = None
+
+
         # --- Controls ---
         left, right = st.columns([1, 2])
         with left:
@@ -468,7 +481,7 @@ else:
         chartspot = st.empty()
 
         def render_step(i: int):
-            row = demo.iloc[i]
+            row = demo.iloc[i] 
             is_fault = int(row["fault"]) == 1
             stamp = row["timestamp"] if "timestamp" in demo.columns else i
 
@@ -481,7 +494,7 @@ else:
                 label = "🚨 Fault detected"
                 cls = "fault"
             else:
-                amber = imminent_drop_likely(sub)
+                amber = preventive_risk(sub, forecast_df)
                 if amber:
                     label = "⚠️ Imminent drop likely"
                     cls = "amber"
