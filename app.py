@@ -79,15 +79,18 @@ st.markdown(
 )
 
 # ---------- Tabs (corporate labels, no emojis) ----------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
+# ---------- Tabs (corporate labels, no emojis) ----------
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "Forecasting",
         "Fault Detection",
         "Community Summary",
         "Household Explorer",
         "Model Performance",
+        "Scheduling",  # <-- NEW
     ]
 )
+
 
 # ===================== 1) Forecasting =====================
 with tab1:
@@ -708,3 +711,164 @@ with tab5:
         "**Headline findings:** Neural forecasting reduced MAE by **13.27%** vs. linear baseline; "
         "fault detection achieved **93.9% accuracy**. Metrics computed offline; this app visualizes operator-facing outputs."
     )
+
+# ===================== 6) Scheduling =====================
+with tab6:
+    st.subheader("Scheduling — Battery Dispatch (Toy Demo)")
+
+    # Try to use the same solar forecast file if available
+    fc_path = "data/forecast.csv"
+    df_fc = load_csv(fc_path, parse_dates=["timestamp"])
+
+    if df_fc is None or "generation_kw" not in (df_fc.columns if df_fc is not None else []):
+        st.info(
+            "Add **data/forecast.csv** with columns at least: "
+            "`timestamp` (datetime) and `generation_kw` (float, kW)."
+        )
+    else:
+        # Optional: load a simple demand profile if you have it, else assume flat demand
+        # Supported columns for demand: timestamp, load_kw
+        ld_path = "data/load.csv"
+        df_ld = load_csv(ld_path, parse_dates=["timestamp"])
+        has_load = df_ld is not None and "load_kw" in df_ld.columns
+
+        if has_load:
+            # align to forecast timestamps via left join
+            df = pd.merge(df_fc[["timestamp", "generation_kw"]], df_ld[["timestamp", "load_kw"]], on="timestamp", how="left")
+            # fill missing load with median or fallback
+            if df["load_kw"].isna().any():
+                df["load_kw"] = df["load_kw"].fillna(df["load_kw"].median() if df["load_kw"].notna().any() else 0.8)
+        else:
+            df = df_fc[["timestamp", "generation_kw"]].copy()
+            df["load_kw"] = 0.8  # default flat demand for demo
+
+        # Sort and basic hygiene
+        df = df.sort_values("timestamp").reset_index(drop=True)
+
+        # --- Controls ---
+        st.markdown("#### Battery & Policy Settings")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cap_kwh = st.number_input("Battery capacity (kWh)", min_value=1.0, value=20.0, step=1.0)
+            soc0 = st.number_input("Initial SoC (kWh)", min_value=0.0, value=10.0, step=0.5, help="State of charge at start")
+        with c2:
+            max_chg_kw = st.number_input("Max charge power (kW)", min_value=0.1, value=5.0, step=0.1)
+            max_dis_kw = st.number_input("Max discharge power (kW)", min_value=0.1, value=5.0, step=0.1)
+        with c3:
+            eta_rt = st.slider("Round-trip efficiency (%)", min_value=50, max_value=100, value=92, step=1)
+            target_soc_end = st.number_input("Target end SoC (kWh)", min_value=0.0, value=10.0, step=0.5)
+
+        st.caption("Heuristic: charge on surplus solar, discharge to cover deficits; respects power limits and capacity.")
+
+        # Infer time step (hours) from timestamps
+        if len(df) >= 2:
+            dt_seconds = (df["timestamp"].iloc[1] - df["timestamp"].iloc[0]).total_seconds()
+            dt_h = max(dt_seconds / 3600.0, 1e-6)
+        else:
+            dt_h = 0.25  # fallback 15 min
+
+        eta_c = np.sqrt((eta_rt / 100.0))   # charge eff
+        eta_d = np.sqrt((eta_rt / 100.0))   # discharge eff
+
+        # Prepare arrays
+        soc = np.zeros(len(df), dtype=float)
+        chg_kw = np.zeros(len(df), dtype=float)
+        dis_kw = np.zeros(len(df), dtype=float)
+        grid_kw = np.zeros(len(df), dtype=float)
+
+        soc[0] = min(max(soc0, 0.0), cap_kwh)
+
+        # Simple greedy policy
+        for i in range(len(df)):
+            gen = float(df.loc[i, "generation_kw"])
+            load = float(df.loc[i, "load_kw"])
+            net = gen - load  # + surplus, - deficit
+
+            # try to keep SoC feasible and approach target by the end
+            # For demo: if last 10% of horizon, bias SoC toward target
+            bias = 0.0
+            if len(df) >= 10 and i > 0.9 * (len(df) - 1):
+                bias = (target_soc_end - soc[i-1]) / max((len(df) - i), 1) / dt_h if i > 0 else 0.0
+
+            if net > 0:
+                # charge up to surplus, limited by max power and headroom
+                wanted = min(net + max(bias, 0.0), max_chg_kw)
+                # energy we can actually store this step accounting for efficiency and headroom
+                headroom_kwh = cap_kwh - (soc[i-1] if i > 0 else soc[0])
+                max_store_kw = headroom_kwh / (dt_h * eta_c) if dt_h > 0 else 0.0
+                p_chg = max(0.0, min(wanted, max_store_kw))
+                chg_kw[i] = p_chg
+                # update SoC
+                delta = p_chg * dt_h * eta_c
+                soc[i] = (soc[i-1] if i > 0 else soc[0]) + delta
+                # any leftover surplus goes to grid export (negative grid import)
+                grid_kw[i] = -(net - p_chg)
+            else:
+                # deficit: discharge to cover up to max power and available energy
+                wanted = min(-net + max(-bias, 0.0), max_dis_kw)
+                avail_kwh = (soc[i-1] if i > 0 else soc[0])
+                max_draw_kw = avail_kwh * eta_d / dt_h if dt_h > 0 else 0.0
+                p_dis = max(0.0, min(wanted, max_draw_kw))
+                dis_kw[i] = p_dis
+                delta = p_dis * dt_h / eta_d
+                soc[i] = (soc[i-1] if i > 0 else soc[0]) - delta
+                # any remaining deficit after discharge must be imported from grid (positive)
+                grid_kw[i] = ( -net ) - p_dis
+
+            # safety clamp
+            soc[i] = min(max(soc[i], 0.0), cap_kwh)
+
+            # carry SoC forward if there is a next step
+            if i < len(df) - 1:
+                df_idx_next = i + 1
+                # prefill soc for next index so the next iteration has soc[i] as previous
+                pass  # nothing needed; soc[i] already set
+
+        schedule = pd.DataFrame({
+            "timestamp": df["timestamp"],
+            "generation_kw": df["generation_kw"],
+            "load_kw": df["load_kw"],
+            "charge_kw": chg_kw,
+            "discharge_kw": dis_kw,
+            "grid_import_kw": np.maximum(grid_kw, 0.0),
+            "grid_export_kw": np.maximum(-grid_kw, 0.0),
+            "soc_kwh": soc,
+        })
+
+        # KPIs
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Final SoC (kWh)", f"{schedule['soc_kwh'].iloc[-1]:.2f}")
+        k2.metric("Total Grid Import (kWh)", f"{(schedule['grid_import_kw']*dt_h).sum():.2f}")
+        k3.metric("Total Grid Export (kWh)", f"{(schedule['grid_export_kw']*dt_h).sum():.2f}")
+        k4.metric("Round-trip η (%)", f"{eta_rt:.0f}%")
+
+        # Plots
+        fig_s1 = px.line(
+            schedule, x="timestamp",
+            y=["generation_kw", "load_kw", "charge_kw", "discharge_kw", "grid_import_kw", "grid_export_kw"],
+            labels={"value": "kW", "variable": "Signal"},
+            title="Dispatch Schedule (kW)"
+        )
+        st.plotly_chart(fig_s1, use_container_width=True)
+
+        fig_s2 = px.line(
+            schedule, x="timestamp", y="soc_kwh",
+            labels={"soc_kwh": "kWh"},
+            title="Battery State of Charge (kWh)"
+        )
+        st.plotly_chart(fig_s2, use_container_width=True)
+
+        # Download
+        csv_bytes = schedule.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download schedule CSV",
+            data=csv_bytes,
+            file_name="schedule.csv",
+            mime="text/csv"
+        )
+
+        st.caption(
+            "This is a **heuristic demo** (greedy charge/discharge with limits & efficiency). "
+            "For research/ops you could replace it with MILP/LP optimization (e.g., Pyomo/Pulp) "
+            "and real price signals."
+        )
