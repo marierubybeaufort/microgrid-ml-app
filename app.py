@@ -1081,6 +1081,8 @@ with st.expander("Data Setup (IESO) — build app inputs from raw IESO FSA CSV",
                 )
                 st.json(summary["outputs"])
                 st.caption("Now reload the page — all tabs will use these new files.")
+                st.cache_data.clear()
+                st.rerun()
             except Exception as e:
                 st.error(f"Failed to build data: {e}")
     # 👇 add these two lines to bust the cache and reload
