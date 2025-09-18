@@ -14,9 +14,6 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("ML for Community Microgrids")
-st.subheader("Forecasting • Fault Detection • Community Focus")
-
 # ---------- Minimal corporate CSS ----------
 st.markdown(
     """
@@ -68,17 +65,6 @@ def load_csv(path, parse_dates=None):
         return None
     return pd.read_csv(path, parse_dates=parse_dates)
 
-
-# ---------- Header ----------
-st.markdown(
-    f'<div style="display:flex;gap:.6rem;align-items:center">'
-    f'{icon_svg("bolt",24)}'
-    f'<h1 style="margin:0">CYM 2025 - ML for Community Microgrids: Forecasting &amp; Fault Detection</h1>'
-    f"</div>",
-    unsafe_allow_html=True,
-)
-
-# ---------- Tabs (corporate labels, no emojis) ----------
 # ---------- Tabs (corporate labels, no emojis) ----------
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
@@ -90,7 +76,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         "Scheduling",  # <-- NEW
     ]
 )
-
 
 # ===================== 1) Forecasting =====================
 with tab1:
