@@ -494,17 +494,14 @@ with tab6:
         """
         ts = pd.to_datetime(ts)
         hours = ts.dt.hour.values
-
-        # robust integer time base for a smooth daily shape
-        t_int = ts.astype("int64")  # nanoseconds since epoch
+        # robust integer time base for smooth daily shape
+        t_int = ts.view("int64")  # ns since epoch (use .view, not .astype, in pandas >=2.0)
         day_frac = (t_int - t_int[0]) / (24 * 3600 * 1e9)
 
         base = 0.8 + 0.15 * np.sin(2 * np.pi * day_frac) - 0.05 * np.cos(4 * np.pi * day_frac)
         evening = np.where((hours >= 18) & (hours <= 22), 0.9, 0.0)
         noise = np.random.default_rng(42).normal(0, 0.03, size=len(ts))
-
         return pd.Series((base + evening + noise).clip(lower=0.1), index=ts.index)
-
 
     # -------- Build working dataframe (timestamp, load_kw, generation_kw) --------
     if df_agg is not None and "timestamp" in df_agg.columns:
@@ -524,10 +521,9 @@ with tab6:
 
     # Load: synthesize an evening-peak profile (since load.csv is absent)
     df["load_kw"] = synthesize_load(df["timestamp"])
-
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # -------- Controls (kept minimal) --------
+    # -------- Controls --------
     c1, c2, c3 = st.columns(3)
     with c1:
         cap_kwh = st.number_input("Battery capacity (kWh)", 1.0, 200.0, 20.0, 1.0)
@@ -580,57 +576,71 @@ with tab6:
 
         soc[i] = float(np.clip(soc[i], 0.0, cap_kwh))
 
-    # -------- Peak-load proof (focus on evening window) --------
+    # -------- Peak reduction on GRID IMPORT in selected window --------
     df["hour"] = pd.to_datetime(df["timestamp"]).dt.hour
     use_evening = st.checkbox("Compute peak only in evening window (17:00–22:00)", value=True)
     mask = (df["hour"].between(17, 22)) if use_evening else np.ones(len(df), dtype=bool)
 
-    idx = mask.to_numpy() if hasattr(mask, "to_numpy") else mask
-    baseline = df["load_kw"].astype(float).values[idx]
-    net_after = baseline - dis_kw[idx] + chg_kw[idx]
+    sel = np.flatnonzero(mask.values if isinstance(mask, pd.Series) else mask)
+    if sel.size == 0:
+        st.warning("Selected window has no points.")
+        st.stop()
 
-    peak_before = float(np.max(baseline))
-    peak_after  = float(np.max(net_after))
+    load_np = df["load_kw"].to_numpy()
+    gen_np  = df["generation_kw"].to_numpy()
+
+    baseline_import = np.maximum(load_np - gen_np, 0.0)
+    after_import    = np.maximum(load_np - gen_np - dis_kw + chg_kw, 0.0)
+
+    peak_before = float(np.max(baseline_import[sel]))
+    peak_after  = float(np.max(after_import[sel]))
     reduction_pct = 100.0 * (peak_before - peak_after) / max(peak_before, 1e-9)
 
-    # KPIs
+    # KPIs (single source of truth)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Peak before (kW)", f"{peak_before:.2f}")
     k2.metric("Peak after (kW)",  f"{peak_after:.2f}")
     k3.metric("Peak Load Reduction", f"{reduction_pct:.1f}%")
     k4.metric("Final SoC (kWh)", f"{soc[-1]:.2f}")
 
-    # Charts
+    # Charts (grid import to match KPIs)
     plot_df = pd.DataFrame({
         "timestamp": df["timestamp"],
-        "Baseline Load (kW)": df["load_kw"].values,
-        "Net Load after Dispatch (kW)": (df["load_kw"] - dis_kw + chg_kw),
+        "Baseline grid import (kW)": baseline_import,
+        "After dispatch import (kW)": after_import,
     })
     fig_peak = px.line(
-        plot_df, x="timestamp", y=["Baseline Load (kW)", "Net Load after Dispatch (kW)"],
-        title="Peak Shaving: Baseline vs. After Battery Dispatch",
-        labels={"value":"kW", "variable":"Series"}
+        plot_df,
+        x="timestamp",
+        y=["Baseline grid import (kW)", "After dispatch import (kW)"],
+        title="Peak Shaving: Grid Import Before vs After",
+        labels={"value":"kW", "variable":"Series"},
     )
     st.plotly_chart(fig_peak, use_container_width=True)
 
+    # Optional: show dispatch powers
     fig_cd = px.line(
         pd.DataFrame({"timestamp": df["timestamp"], "charge_kw": chg_kw, "discharge_kw": dis_kw}),
         x="timestamp", y=["charge_kw", "discharge_kw"], title="Battery Dispatch (kW)",
-        labels={"value":"kW", "variable":"Signal"}
+        labels={"value":"kW", "variable":"Signal"},
     )
     st.plotly_chart(fig_cd, use_container_width=True)
 
+    # Export what you plotted
     out = pd.DataFrame({
         "timestamp": df["timestamp"],
-        "load_kw": df["load_kw"].values,
-        "net_after_kw": (df["load_kw"] - dis_kw + chg_kw),
+        "baseline_import_kw": baseline_import,
+        "after_import_kw": after_import,
         "charge_kw": chg_kw,
         "discharge_kw": dis_kw,
-        "soc_kwh": soc
+        "soc_kwh": soc,
     })
-    st.download_button("Download peak-shaving data (CSV)",
-                       data=out.to_csv(index=False).encode("utf-8"),
-                       file_name="peak_shaving.csv", mime="text/csv")
+    st.download_button(
+        "Download peak-shaving data (CSV)",
+        data=out.to_csv(index=False).encode("utf-8"),
+        file_name="peak_shaving.csv",
+        mime="text/csv",
+    )
 
     st.caption("Heuristic demo: greedy charge/discharge with power limits & round-trip efficiency. "
                "For production, use MILP/LP with price signals.")
