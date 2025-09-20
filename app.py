@@ -316,10 +316,7 @@ with tab2:
 
     st.caption("**Result:** Fault detector achieved **93.9% accuracy**, balancing sensitivity and precision.")
     st.divider()
-
-    # ==== Live Monitor: big red/green indicator (drop this at the END of tab2) ====
-st.divider()
-st.markdown("### Live Monitor — System Fault Indicator")
+    st.markdown("### Live Monitor — System Fault Indicator")
 
 # Re-use the same faults.csv you already visualize (timestamp, generation_kw, fault)
 fpath = "data/faults.csv"
@@ -596,6 +593,8 @@ if os.path.exists(fpath):
         st.caption("Tip: `faults.csv` schema → **timestamp (optional), generation_kw, fault (0/1)**.")
 else:
     st.info("Add **data/faults.csv** to see the time series with red fault markers.")
+
+    # ==== Live Monitor: big red/green indicator (drop this at the END of tab2) ====
 
 # ===================== 3) Community Summary =====================
 with tab3:
