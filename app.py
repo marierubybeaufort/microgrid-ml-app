@@ -479,43 +479,52 @@ with tab5:
 with tab6:
     st.subheader("Peak Shaving — Battery Dispatch")
 
-    # -------- Data loading with fallbacks --------
-    fc_path  = "data/forecast.csv"
-    ld_path  = "data/load.csv"
-    agg_path = "data/community_agg.csv"
+    # -------- Data loading --------
+    fc_path  = "data/forecast.csv"          # optional solar generation
+    agg_path = "data/community_agg.csv"     # optional community timebase
 
     df_fc  = load_csv(fc_path, parse_dates=["timestamp"])
-    df_ld  = load_csv(ld_path, parse_dates=["timestamp"])
     df_agg = load_csv(agg_path, parse_dates=["timestamp"])
 
-    # Build df with timestamp, load_kw, generation_kw
-    if df_ld is not None and {"timestamp","load_kw"}.issubset(df_ld.columns):
-        if df_fc is not None and {"timestamp","generation_kw"}.issubset(df_fc.columns):
-            df = pd.merge(df_fc[["timestamp","generation_kw"]],
-                          df_ld[["timestamp","load_kw"]], on="timestamp", how="left")
-            if df["load_kw"].isna().any():
-                df["load_kw"] = df["load_kw"].fillna(df["load_kw"].median())
-        else:
-            df = df_ld[["timestamp","load_kw"]].copy()
-            df["generation_kw"] = 0.0
-    elif df_agg is not None and {"timestamp","total_generation_kw"}.issubset(df_agg.columns):
-        df = df_agg[["timestamp","total_generation_kw"]].rename(columns={"total_generation_kw":"load_kw"})
-        if df_fc is not None and "generation_kw" in (df_fc.columns if df_fc is not None else []):
-            df = pd.merge(df, df_fc[["timestamp","generation_kw"]], on="timestamp", how="left").fillna({"generation_kw":0.0})
-        else:
-            df["generation_kw"] = 0.0
+    # -------- Helpers --------
+    def synthesize_load(ts: pd.Series) -> pd.Series:
+        """
+        Create a realistic community load with an evening peak.
+        Produces ~1.4–2.0 kW peaks (relative to ~0.7–0.9 kW base).
+        """
+        ts = pd.to_datetime(ts)
+        hours = ts.dt.hour.values
+        # slow daily shape (slight midday dip)
+        day_frac = (ts.view("int64") - ts.view("int64")[0]) / (24 * 3600 * 1e9)
+        base = 0.8 + 0.15 * np.sin(2 * np.pi * day_frac) - 0.05 * np.cos(4 * np.pi * day_frac)
+        # evening bump 18–22
+        evening = np.where((hours >= 18) & (hours <= 22), 0.9, 0.0)
+        # small noise
+        noise = np.random.default_rng(42).normal(0, 0.03, size=len(ts))
+        return pd.Series((base + evening + noise).clip(min=0.1), index=ts.index)
+
+    # -------- Build working dataframe (timestamp, load_kw, generation_kw) --------
+    if df_agg is not None and "timestamp" in df_agg.columns:
+        df = pd.DataFrame({"timestamp": df_agg["timestamp"].sort_values().values})
     elif df_fc is not None and "timestamp" in df_fc.columns:
-        df = df_fc[["timestamp"]].copy()
-        df["generation_kw"] = df_fc["generation_kw"] if "generation_kw" in df_fc.columns else 0.0
-        df["load_kw"] = 0.8  # flat demo load
+        df = df_fc[["timestamp"]].copy().sort_values("timestamp")
     else:
-        st.info("Add either **data/load.csv** (timestamp, load_kw) OR **data/community_agg.csv** "
-                "(timestamp,total_generation_kw) OR **data/forecast.csv**.")
+        st.info("Need either **data/community_agg.csv** or **data/forecast.csv** for a time axis.")
         st.stop()
+
+    # Generation (optional)
+    if df_fc is not None and {"timestamp", "generation_kw"}.issubset(df_fc.columns):
+        df = pd.merge(df, df_fc[["timestamp", "generation_kw"]], on="timestamp", how="left")
+        df["generation_kw"] = df["generation_kw"].fillna(0.0)
+    else:
+        df["generation_kw"] = 0.0
+
+    # Load: synthesize an evening-peak profile (since load.csv is absent)
+    df["load_kw"] = synthesize_load(df["timestamp"])
 
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # -------- Controls (minimal) --------
+    # -------- Controls (kept minimal) --------
     c1, c2, c3 = st.columns(3)
     with c1:
         cap_kwh = st.number_input("Battery capacity (kWh)", 1.0, 200.0, 20.0, 1.0)
@@ -544,7 +553,7 @@ with tab6:
         load = float(df.loc[i, "load_kw"])
         net = gen - load  # + surplus, - deficit
 
-        # Bias near the end toward target SoC
+        # gently bias last 10% toward target SoC
         bias = 0.0
         if n >= 10 and i > 0.9*(n-1):
             prev = soc[i-1] if i > 0 else soc[0]
@@ -568,13 +577,20 @@ with tab6:
 
         soc[i] = float(np.clip(soc[i], 0.0, cap_kwh))
 
-    # -------- Peak-load proof --------
-    baseline = df["load_kw"].astype(float).values
-    net_after = baseline - dis_kw + chg_kw
+    # -------- Peak-load proof (focus on evening window) --------
+    df["hour"] = pd.to_datetime(df["timestamp"]).dt.hour
+    use_evening = st.checkbox("Compute peak only in evening window (17:00–22:00)", value=True)
+    mask = (df["hour"].between(17, 22)) if use_evening else np.ones(len(df), dtype=bool)
+
+    idx = mask.to_numpy() if hasattr(mask, "to_numpy") else mask
+    baseline = df["load_kw"].astype(float).values[idx]
+    net_after = baseline - dis_kw[idx] + chg_kw[idx]
+
     peak_before = float(np.max(baseline))
     peak_after  = float(np.max(net_after))
     reduction_pct = 100.0 * (peak_before - peak_after) / max(peak_before, 1e-9)
 
+    # KPIs
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Peak before (kW)", f"{peak_before:.2f}")
     k2.metric("Peak after (kW)",  f"{peak_after:.2f}")
@@ -584,13 +600,13 @@ with tab6:
     # Charts
     plot_df = pd.DataFrame({
         "timestamp": df["timestamp"],
-        "Baseline Load (kW)": baseline,
-        "Net Load after Dispatch (kW)": net_after,
+        "Baseline Load (kW)": df["load_kw"].values,
+        "Net Load after Dispatch (kW)": (df["load_kw"] - dis_kw + chg_kw),
     })
     fig_peak = px.line(
         plot_df, x="timestamp", y=["Baseline Load (kW)", "Net Load after Dispatch (kW)"],
         title="Peak Shaving: Baseline vs. After Battery Dispatch",
-        labels={"value":"kW", "variable": "Series"}
+        labels={"value":"kW", "variable":"Series"}
     )
     st.plotly_chart(fig_peak, use_container_width=True)
 
@@ -603,8 +619,8 @@ with tab6:
 
     out = pd.DataFrame({
         "timestamp": df["timestamp"],
-        "load_kw": baseline,
-        "net_after_kw": net_after,
+        "load_kw": df["load_kw"].values,
+        "net_after_kw": (df["load_kw"] - dis_kw + chg_kw),
         "charge_kw": chg_kw,
         "discharge_kw": dis_kw,
         "soc_kwh": soc
@@ -613,5 +629,5 @@ with tab6:
                        data=out.to_csv(index=False).encode("utf-8"),
                        file_name="peak_shaving.csv", mime="text/csv")
 
-    st.caption("Method: simple greedy dispatch with power limits & round-trip efficiency. "
-               "For production, replace with MILP/LP optimization and price signals.")
+    st.caption("Heuristic demo: greedy charge/discharge with power limits & round-trip efficiency. "
+               "For production, use MILP/LP with price signals.")
