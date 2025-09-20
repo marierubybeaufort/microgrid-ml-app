@@ -659,15 +659,6 @@ with tab3:
             "Import (kWh)": [d["import_baseline"].sum(), d["import_ml"].sum()],
             "Cost ($)": [cost_base, cost_ml],
         })
-        fig_bar = px.bar(
-            imp_cost.melt("Scenario", var_name="Metric", value_name="Value"),
-            x="Scenario",
-            y="Value",
-            color="Metric",
-            barmode="group",
-            title="Energy Imports & Cost (window)",
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
 
         # Optional callout
         callout_bits = [
