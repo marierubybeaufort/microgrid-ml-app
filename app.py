@@ -537,7 +537,7 @@ with c3:
     # End target not above start, so controller won’t keep charging into the evening peak
     target_soc_end = st.number_input("Target end SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(16.0, cap_kwh), step=0.5)
 
-# -------- Simulation (greedy + peak guard) --------
+# -------- Simulation (greedy + peak guard + reserve) --------
 if len(df) >= 2:
     dt_h = max((df["timestamp"].iloc[1] - df["timestamp"].iloc[0]).total_seconds()/3600.0, 1e-6)
 else:
@@ -550,44 +550,46 @@ soc = np.zeros(n); chg_kw = np.zeros(n); dis_kw = np.zeros(n)
 soc[0] = float(np.clip(soc0, 0.0, cap_kwh))
 
 hours = pd.to_datetime(df["timestamp"]).dt.hour.to_numpy()
-is_peak_hour = (hours >= 17) & (hours <= 22)   # peak guard window
+is_peak_hour = (hours >= 17) & (hours <= 22)
+
+# Keep at least this much in the tank (don’t discharge below it)
+soc_floor = float(np.clip(target_soc_end, 0.0, cap_kwh))
 
 for i in range(n):
     gen  = float(df.loc[i, "generation_kw"])
     load = float(df.loc[i, "load_kw"])
     net  = gen - load  # + surplus, - deficit
 
-    # Bias last 10% of horizon toward end target
-    bias = 0.0
-    if n >= 10 and i > 0.9*(n-1):
-        prev = soc[i-1] if i > 0 else soc[0]
-        bias = (target_soc_end - prev) / max((n - i), 1) / dt_h
+    prev_soc = soc[i-1] if i > 0 else soc[0]
 
-    prev = soc[i-1] if i > 0 else soc[0]
-
-    if net > 0:
-        # Surplus: charge… except never charge in the peak window (peak guard)
-        wanted = min(net + max(bias, 0.0), max_chg_kw)
-        if is_peak_hour[i]:
-            p_chg = 0.0  # don't “inflate” the peak by charging during 17–22h
-        else:
-            headroom = cap_kwh - prev
-            max_store_kw = headroom / (dt_h * eta_c) if dt_h > 0 else 0.0
-            p_chg = max(0.0, min(wanted, max_store_kw))
-        chg_kw[i] = p_chg
-        soc[i] = prev + p_chg * dt_h * eta_c
-    else:
-        # Deficit: discharge to shave the peak
-        wanted = min(-net + max(-bias, 0.0), max_dis_kw)
-        max_draw_kw = prev * eta_d / dt_h if dt_h > 0 else 0.0
-        p_dis = max(0.0, min(wanted, max_draw_kw))
+    if is_peak_hour[i]:
+        # ---- Peak window: DISCHARGE allowed, never CHARGE ----
+        # Only discharge down to the reserve floor
+        max_draw_kw = max(0.0, (prev_soc - soc_floor) * eta_d / dt_h)
+        wanted_dis  = min(max(-net, 0.0), max_dis_kw)  # cover the deficit only
+        p_dis = max(0.0, min(wanted_dis, max_draw_kw))
         dis_kw[i] = p_dis
-        soc[i] = prev - p_dis * dt_h / eta_d
+        # update SoC with discharge
+        soc[i] = prev_soc - p_dis * dt_h / eta_d
+        chg_kw[i] = 0.0
 
+    else:
+        # ---- Off-peak window: CHARGE allowed, never DISCHARGE ----
+        wanted_chg = min(max(net, 0.0), max_chg_kw)  # only use surplus to charge
+        headroom   = cap_kwh - prev_soc
+        max_store_kw = max(0.0, headroom / (dt_h * eta_c))
+        p_chg = max(0.0, min(wanted_chg, max_store_kw))
+        chg_kw[i] = p_chg
+        # update SoC with charge
+        soc[i] = prev_soc + p_chg * dt_h * eta_c
+        dis_kw[i] = 0.0
+
+    # safety clamp
     soc[i] = float(np.clip(soc[i], 0.0, cap_kwh))
 
 
-    # -------- Peak reduction on GRID IMPORT in selected window --------
+
+    # Evening window + GRID IMPORT peaks
     df["hour"] = pd.to_datetime(df["timestamp"]).dt.hour
     use_evening = st.checkbox("Compute peak only in evening window (17:00–22:00)", value=True)
     mask = (df["hour"].between(17, 22)) if use_evening else np.ones(len(df), dtype=bool)
@@ -607,12 +609,12 @@ for i in range(n):
     peak_after  = float(np.max(after_import[sel]))
     reduction_pct = 100.0 * (peak_before - peak_after) / max(peak_before, 1e-9)
 
-    # KPIs (single source of truth)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Peak before (kW)", f"{peak_before:.2f}")
     k2.metric("Peak after (kW)",  f"{peak_after:.2f}")
     k3.metric("Peak Load Reduction", f"{reduction_pct:.1f}%")
     k4.metric("Final SoC (kWh)", f"{soc[-1]:.2f}")
+
 
     # Charts (grid import to match KPIs)
     plot_df = pd.DataFrame({
