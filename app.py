@@ -642,33 +642,6 @@ with tab3:
         )
         st.plotly_chart(fig_b, use_container_width=True)
 
-        fig_soc = px.line(
-            pd.DataFrame({
-                "x": xname,
-                "SOC — Baseline": d["soc_base"].values,
-                "SOC — With ML": d["soc_ml"].values,
-            }),
-            x="x",
-            y=["SOC — Baseline", "SOC — With ML"],
-            title="State of Charge (SOC)",
-        )
-        st.plotly_chart(fig_soc, use_container_width=True)
-
-        imp_cost = pd.DataFrame({
-            "Scenario": ["Baseline", "With ML"],
-            "Import (kWh)": [d["import_baseline"].sum(), d["import_ml"].sum()],
-            "Cost ($)": [cost_base, cost_ml],
-        })
-
-        # Optional callout
-        callout_bits = [
-            f"late-evening discharge share {late_pp:+.1f} pp",
-            f"peak import ↓ {kpi_peak_pct:.1f}%",
-            f"import cost ↓ {kpi_cost_pct:.1f}%"
-        ]
-        st.info("With ML: " + " • ".join(callout_bits))
-
-
 # ===================== 5) Model Performance (headline) =====================
 with tab5:
     st.subheader("Model Performance — Headline Metrics")
