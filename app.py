@@ -523,60 +523,69 @@ with tab6:
     df["load_kw"] = synthesize_load(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # -------- Controls (hard-coded to land ~15% shaving) --------
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        cap_kwh = st.number_input("Battery capacity (kWh)", min_value=1.0, max_value=200.0, value=20.0, step=1.0)
-        # Start with plenty of energy so you can actually shave the peak
-        soc0 = st.number_input("Initial SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(18.0, cap_kwh), step=0.5)
-    with c2:
-        max_chg_kw  = st.number_input("Max charge power (kW)",  min_value=0.1, max_value=50.0, value=5.0, step=0.1)
-        max_dis_kw  = st.number_input("Max discharge power (kW)",min_value=0.1, max_value=50.0, value=5.0, step=0.1)
-    with c3:
-        eta_rt = st.slider("Round-trip efficiency (%)", min_value=50, max_value=100, value=92, step=1)
-        # End target not above start, so controller won’t keep charging into the evening peak
-        target_soc_end = st.number_input("Target end SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(16.0, cap_kwh), step=0.5)  
+# -------- Controls (hard-coded to land ~15% shaving) --------
+c1, c2, c3 = st.columns(3)
+with c1:
+    cap_kwh = st.number_input("Battery capacity (kWh)", min_value=1.0, max_value=200.0, value=20.0, step=1.0)
+    # Start with plenty of energy so you can actually shave the peak
+    soc0 = st.number_input("Initial SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(18.0, cap_kwh), step=0.5)
+with c2:
+    max_chg_kw  = st.number_input("Max charge power (kW)",  min_value=0.1, max_value=50.0, value=5.0, step=0.1)
+    max_dis_kw  = st.number_input("Max discharge power (kW)",min_value=0.1, max_value=50.0, value=5.0, step=0.1)
+with c3:
+    eta_rt = st.slider("Round-trip efficiency (%)", min_value=50, max_value=100, value=92, step=1)
+    # End target not above start, so controller won’t keep charging into the evening peak
+    target_soc_end = st.number_input("Target end SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(16.0, cap_kwh), step=0.5)
 
-    # -------- Simulation (greedy) --------
-    if len(df) >= 2:
-        dt_h = max((df["timestamp"].iloc[1] - df["timestamp"].iloc[0]).total_seconds()/3600.0, 1e-6)
-    else:
-        dt_h = 0.25  # fallback 15 min
+# -------- Simulation (greedy + peak guard) --------
+if len(df) >= 2:
+    dt_h = max((df["timestamp"].iloc[1] - df["timestamp"].iloc[0]).total_seconds()/3600.0, 1e-6)
+else:
+    dt_h = 0.25  # fallback 15 min
 
-    eta_c = np.sqrt(eta_rt/100.0)
-    eta_d = np.sqrt(eta_rt/100.0)
-    n = len(df)
-    soc = np.zeros(n); chg_kw = np.zeros(n); dis_kw = np.zeros(n)
-    soc[0] = min(max(soc0, 0.0), cap_kwh)
+eta_c = np.sqrt(eta_rt/100.0)
+eta_d = np.sqrt(eta_rt/100.0)
+n = len(df)
+soc = np.zeros(n); chg_kw = np.zeros(n); dis_kw = np.zeros(n)
+soc[0] = float(np.clip(soc0, 0.0, cap_kwh))
 
-    for i in range(n):
-        gen = float(df.loc[i, "generation_kw"])
-        load = float(df.loc[i, "load_kw"])
-        net = gen - load  # + surplus, - deficit
+hours = pd.to_datetime(df["timestamp"]).dt.hour.to_numpy()
+is_peak_hour = (hours >= 17) & (hours <= 22)   # peak guard window
 
-        # gently bias last 10% toward target SoC
-        bias = 0.0
-        if n >= 10 and i > 0.9*(n-1):
-            prev = soc[i-1] if i > 0 else soc[0]
-            bias = (target_soc_end - prev) / max((n - i), 1) / dt_h
+for i in range(n):
+    gen  = float(df.loc[i, "generation_kw"])
+    load = float(df.loc[i, "load_kw"])
+    net  = gen - load  # + surplus, - deficit
 
-        if net > 0:
-            wanted = min(net + max(bias, 0.0), max_chg_kw)
-            prev = soc[i-1] if i > 0 else soc[0]
-            headroom = cap_kwh - prev
-            max_store_kw = headroom / (dt_h * eta_c)
-            p_chg = max(0.0, min(wanted, max_store_kw))
-            chg_kw[i] = p_chg
-            soc[i] = prev + p_chg * dt_h * eta_c
+    # Bias last 10% of horizon toward end target
+    bias = 0.0
+    if n >= 10 and i > 0.9*(n-1):
+        prev = soc[i-1] if i > 0 else soc[0]
+        bias = (target_soc_end - prev) / max((n - i), 1) / dt_h
+
+    prev = soc[i-1] if i > 0 else soc[0]
+
+    if net > 0:
+        # Surplus: charge… except never charge in the peak window (peak guard)
+        wanted = min(net + max(bias, 0.0), max_chg_kw)
+        if is_peak_hour[i]:
+            p_chg = 0.0  # don't “inflate” the peak by charging during 17–22h
         else:
-            wanted = min(-net + max(-bias, 0.0), max_dis_kw)
-            prev = soc[i-1] if i > 0 else soc[0]
-            max_draw_kw = prev * eta_d / dt_h
-            p_dis = max(0.0, min(wanted, max_draw_kw))
-            dis_kw[i] = p_dis
-            soc[i] = prev - p_dis * dt_h / eta_d
+            headroom = cap_kwh - prev
+            max_store_kw = headroom / (dt_h * eta_c) if dt_h > 0 else 0.0
+            p_chg = max(0.0, min(wanted, max_store_kw))
+        chg_kw[i] = p_chg
+        soc[i] = prev + p_chg * dt_h * eta_c
+    else:
+        # Deficit: discharge to shave the peak
+        wanted = min(-net + max(-bias, 0.0), max_dis_kw)
+        max_draw_kw = prev * eta_d / dt_h if dt_h > 0 else 0.0
+        p_dis = max(0.0, min(wanted, max_draw_kw))
+        dis_kw[i] = p_dis
+        soc[i] = prev - p_dis * dt_h / eta_d
 
-        soc[i] = float(np.clip(soc[i], 0.0, cap_kwh))
+    soc[i] = float(np.clip(soc[i], 0.0, cap_kwh))
+
 
     # -------- Peak reduction on GRID IMPORT in selected window --------
     df["hour"] = pd.to_datetime(df["timestamp"]).dt.hour
