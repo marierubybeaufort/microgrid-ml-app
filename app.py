@@ -523,17 +523,19 @@ with tab6:
     df["load_kw"] = synthesize_load(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # -------- Controls --------
+    # -------- Controls (hard-coded to land ~15% shaving) --------
     c1, c2, c3 = st.columns(3)
     with c1:
-        cap_kwh = st.number_input("Battery capacity (kWh)", 1.0, 200.0, 20.0, 1.0)
-        soc0 = st.number_input("Initial SoC (kWh)", 0.0, cap_kwh, min(cap_kwh/2, 10.0), 0.5)
+        cap_kwh = st.number_input("Battery capacity (kWh)", min_value=1.0, max_value=200.0, value=20.0, step=1.0)
+        # Start with plenty of energy so you can actually shave the peak
+        soc0 = st.number_input("Initial SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(18.0, cap_kwh), step=0.5)
     with c2:
-        max_chg_kw = st.number_input("Max charge power (kW)", 0.1, 50.0, 5.0, 0.1)
-        max_dis_kw = st.number_input("Max discharge power (kW)", 0.1, 50.0, 5.0, 0.1)
+        max_chg_kw  = st.number_input("Max charge power (kW)",  min_value=0.1, max_value=50.0, value=5.0, step=0.1)
+        max_dis_kw  = st.number_input("Max discharge power (kW)",min_value=0.1, max_value=50.0, value=5.0, step=0.1)
     with c3:
-        eta_rt = st.slider("Round-trip efficiency (%)", 50, 100, 92, 1)
-        target_soc_end = st.number_input("Target end SoC (kWh)", 0.0, cap_kwh, soc0, 0.5)
+        eta_rt = st.slider("Round-trip efficiency (%)", min_value=50, max_value=100, value=92, step=1)
+        # End target not above start, so controller won’t keep charging into the evening peak
+        target_soc_end = st.number_input("Target end SoC (kWh)", min_value=0.0, max_value=cap_kwh, value=min(16.0, cap_kwh), step=0.5)  
 
     # -------- Simulation (greedy) --------
     if len(df) >= 2:
