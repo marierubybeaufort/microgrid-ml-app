@@ -494,14 +494,17 @@ with tab6:
         """
         ts = pd.to_datetime(ts)
         hours = ts.dt.hour.values
-        # slow daily shape (slight midday dip)
-        day_frac = (ts.view("int64") - ts.view("int64")[0]) / (24 * 3600 * 1e9)
+
+        # robust integer time base for a smooth daily shape
+        t_int = ts.astype("int64")  # nanoseconds since epoch
+        day_frac = (t_int - t_int[0]) / (24 * 3600 * 1e9)
+
         base = 0.8 + 0.15 * np.sin(2 * np.pi * day_frac) - 0.05 * np.cos(4 * np.pi * day_frac)
-        # evening bump 18–22
         evening = np.where((hours >= 18) & (hours <= 22), 0.9, 0.0)
-        # small noise
         noise = np.random.default_rng(42).normal(0, 0.03, size=len(ts))
-        return pd.Series((base + evening + noise).clip(min=0.1), index=ts.index)
+
+        return pd.Series((base + evening + noise).clip(lower=0.1), index=ts.index)
+
 
     # -------- Build working dataframe (timestamp, load_kw, generation_kw) --------
     if df_agg is not None and "timestamp" in df_agg.columns:
