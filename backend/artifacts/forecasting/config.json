@@ -1,0 +1,59 @@
+{
+  "features": [
+    "consumption_per_premise_kwh",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos"
+  ],
+  "target": "consumption_per_premise_kwh",
+  "sequence_length": 24,
+  "hidden_size": 64,
+  "batch_size": 128,
+  "learning_rate": 0.001,
+  "seed": 42,
+  "train_end": "2025-05-22 16:00:00",
+  "validation_end": "2025-05-27 08:00:00",
+  "training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.039827298302546825,
+      "validation_loss": 0.021911668982366753
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.014790295870504105,
+      "validation_loss": 0.014339646215138507
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.012555627862995872,
+      "validation_loss": 0.012733854735623936
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.01138108142150794,
+      "validation_loss": 0.01106371223296693
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.010693332790854498,
+      "validation_loss": 0.01064135893230581
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.010306835539066948,
+      "validation_loss": 0.009965367717872717
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.009912844783086067,
+      "validation_loss": 0.009921817674310036
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.009789985428829008,
+      "validation_loss": 0.01044860610428454
+    }
+  ]
+}

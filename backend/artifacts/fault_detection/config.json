@@ -1,0 +1,20 @@
+{
+  "features": [
+    "delta_1",
+    "drop_from_4",
+    "drop_from_12",
+    "relative_delta_1",
+    "relative_drop_4",
+    "relative_drop_12",
+    "z_drop_4",
+    "z_drop_12"
+  ],
+  "threshold": 0.16575055830655183,
+  "threshold_strategy": "99th percentile of OOB normal-class probabilities",
+  "normal_alert_quantile": 0.99,
+  "n_estimators": 500,
+  "random_state": 42,
+  "training_rows": 9050,
+  "training_faults": 63,
+  "training_fault_rate": 0.0069613259668508285
+}
