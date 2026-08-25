@@ -1,0 +1,8 @@
+{
+  "normalized_mse": 0.008362825480805497,
+  "mae_kwh_per_premise": 0.014957799579710995,
+  "rmse_kwh_per_premise": 0.02486015261054722,
+  "persistence_validation_mse": 0.05666084056585596,
+  "persistence_test_mse": 0.05742500565842456,
+  "mse_improvement_vs_persistence_pct": 85.43696185151595
+}
