@@ -1,361 +1,171 @@
 # Microgrid ML
 
-**Machine learning for electricity-consumption forecasting and microgrid fault-risk detection.**
+![CYM 2025](https://img.shields.io/badge/CYM_2025-Conference_Project-003366?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-LSTM-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-Random_Forest-F7931E?style=flat-square&logo=scikitlearn&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-Frontend-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-Build-646CFF?style=flat-square&logo=vite&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-Data-013243?style=flat-square&logo=numpy&logoColor=white)
+![pandas](https://img.shields.io/badge/pandas-Data-150458?style=flat-square&logo=pandas&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-7_passed-0A9EDC?style=flat-square&logo=pytest&logoColor=white)
+ 
+Machine learning for next-hour electricity-consumption forecasting and temporal fault-risk detection in community microgrids.
 
-Microgrid ML is an end-to-end machine-learning system for analyzing community energy data. The 2026 rebuild introduces a reproducible backend built with **FastAPI, PyTorch, and scikit-learn**, with explicit preprocessing, chronological evaluation, saved model artifacts, production inference, and tested API endpoints.
+Built with **PyTorch**, **scikit-learn**, and **FastAPI**. Evaluation is leakage-aware throughout: chronological splits for forecasting, held-out-household validation for fault detection, and train-only normalization.
 
-The project currently supports two core ML tasks:
+## The Problem
 
-- **next-hour residential electricity-consumption forecasting**
-- **temporal fault-risk detection for household generation data**
+Community microgrids lack accessible tooling for two critical operational tasks: anticipating near-term electricity demand and detecting early signs of generation equipment degradation. Existing approaches either require proprietary SCADA infrastructure or treat evaluation casually, randomly splitting time-series data in ways that leak future information into training and inflate reported accuracy.
 
-> The original Streamlit dashboard remains in the repository as a legacy interface while a new React + Vite frontend is developed.
+## This Project
+
+Microgrid ML builds both capabilities from public and synthetic data with evaluation designed to be honest. The forecaster uses a PyTorch LSTM trained on IESO Ontario residential consumption data with strict chronological splitting and train-only normalization. The fault detector uses a scikit-learn Random Forest trained on household-relative temporal degradation features, evaluated by holding out entire faulty households rather than randomly mixing observations. Both models produce saved artifacts served through a FastAPI backend with Pydantic-validated endpoints.
 
 ---
 
-## Results
+## System Architecture
 
-### Electricity forecasting
+The system separates offline training from online inference. Two independent ML branches produce saved artifacts that the FastAPI backend loads at startup.
 
-A PyTorch LSTM is trained on hourly residential electricity-consumption data aggregated by Forward Sortation Area.
+![System Architecture](assets/system-architecture.png)
 
-| Metric | Result |
+---
+
+## Results at a Glance
+
+### Forecasting
+
+The LSTM forecaster reduces normalized MSE by **85.44%** over a persistence baseline on a chronologically held-out test period.
+
+![Forecasting Model & Results](assets/forecasting-model.png)
+
+| Metric | Value |
 |---|---:|
 | Test normalized MSE | `0.008363` |
-| Test MAE | `0.014958 kWh/premise` |
-| Test RMSE | `0.024860 kWh/premise` |
 | Persistence baseline MSE | `0.057425` |
-| MSE reduction vs. persistence | **85.44%** |
+| MSE reduction | **85.44%** |
+| MAE | `0.014958 kWh / premise` |
+| RMSE | `0.024860 kWh / premise` |
 
-The model is evaluated on a chronologically held-out test period and compared against a persistence baseline that predicts the next hour using the most recent observed value.
+### Fault-Risk Detection
 
-### Fault-risk detection
+The fault detector achieves a mean held-out-household **PR-AUC of 0.803** using temporal degradation features and a conservative OOB-derived alert threshold.
 
-The fault detector uses a class-balanced Random Forest trained on household-relative temporal degradation features.
+![Fault-Risk Pipeline & Results](assets/fault-risk-pipeline.png)
 
-| Metric | Result |
+| Household | PR-AUC |
 |---|---:|
-| Mean held-out-household PR-AUC | **`0.803`** |
-| Alert threshold strategy | 99th percentile of OOB normal scores |
-
-Fault evaluation is performed by holding out faulty households entirely rather than randomly mixing observations between train and test sets.
-
-The detector is intentionally treated as a **conservative fault-risk model**, not as a generic high-recall fault classifier.
+| House_01 | 0.619 |
+| House_07 | 0.991 |
+| House_13 | 0.799 |
+| **Mean** | **0.803** |
 
 ---
 
-## Architecture
+## Evaluation Protocol
 
-```text
-                         ┌─────────────────────────┐
-                         │      React + Vite       │
-                         │      frontend WIP       │
-                         └────────────┬────────────┘
-                                      │
-                                      │ HTTP / JSON
-                                      ▼
-                         ┌─────────────────────────┐
-                         │        FastAPI          │
-                         │                         │
-                         │  /forecast   /fault     │
-                         │  /health                │
-                         └──────────┬──────┬───────┘
-                                    │      │
-                    ┌───────────────┘      └───────────────┐
-                    ▼                                      ▼
-        ┌────────────────────────┐             ┌────────────────────────┐
-        │  Forecasting Service   │             │  Fault-Risk Service    │
-        └────────────┬───────────┘             └────────────┬───────────┘
-                     │                                      │
-                     ▼                                      ▼
-        ┌────────────────────────┐             ┌────────────────────────┐
-        │    PyTorch LSTM        │             │    Random Forest       │
-        │                        │             │                        │
-        │  next-hour energy      │             │  temporal degradation │
-        │  consumption forecast  │             │  risk score           │
-        └────────────┬───────────┘             └────────────┬───────────┘
-                     │                                      │
-                     ▼                                      ▼
-        ┌────────────────────────┐             ┌────────────────────────┐
-        │ Saved model + scaler   │             │ Saved model + config   │
-        │ config + metrics       │             │ threshold              │
-        └────────────────────────┘             └────────────────────────┘
-```
+Both tasks use evaluation strategies designed to prevent data leakage.
+
+![Evaluation Protocol](assets/evaluation-protocol.png)
+
+**Forecasting** uses a strict chronological split (70 / 15 / 15). Normalization statistics are fitted on training data only. The test set is never used for model selection.
+
+**Fault detection** holds out entire faulty households rather than randomly splitting observations. The alert threshold is derived from the 99th percentile of out-of-bag normal-class probabilities, producing a conservative alerting strategy.
 
 ---
 
-## Forecasting pipeline
+## Forecasting Pipeline
 
-The 2026 forecasting pipeline uses public hourly residential electricity-consumption data from the **Independent Electricity System Operator (IESO)**.
+### Data
 
-The raw monthly dataset contains more than **1.46 million records** across geographic regions, customer types, and pricing plans.
-
-For forecasting, the pipeline:
-
-1. filters to residential customers
-2. aggregates price plans within each geographic region and hour
-3. removes incomplete geographic time series
-4. normalizes consumption by premise count
-5. creates cyclical hour-of-day and day-of-week features
-6. performs chronological train / validation / test splitting
-7. fits normalization statistics using the training period only
-8. generates 24-hour sliding input sequences
-9. trains a global LSTM across all geographic series
-
-### Training dataset
+Public hourly residential electricity-consumption data from the **Independent Electricity System Operator (IESO)** of Ontario. The raw monthly dataset contains over **1.46 million records**.
 
 After preprocessing:
 
-```text
-534 complete geographic series
-744 hourly timestamps per series
-397,296 aggregated observations
-384,480 forecasting windows
-24-hour input sequence
-5 input features
-```
+| Property | Value |
+|---|---:|
+| Complete geographic series | 534 |
+| Hourly timestamps per series | 744 |
+| Aggregated observations | 397,296 |
+| Forecasting windows | 384,480 |
+| Input sequence length | 24 hours |
+| Input features | 5 |
 
-The target is:
+### Features
 
-```text
-consumption_per_premise_kwh
-```
+Each hourly input contains:
 
-Using consumption per premise prevents large geographic regions from dominating the model purely because they contain more customers.
+| Feature | Description |
+|---|---|
+| `consumption_per_premise_kwh` | Normalized consumption target |
+| `hour_sin`, `hour_cos` | Cyclical hour-of-day encoding |
+| `dow_sin`, `dow_cos` | Cyclical day-of-week encoding |
 
-### Input features
+Normalizing by premise count prevents large regions from dominating the model purely because they contain more customers.
 
-Each hourly LSTM input contains:
+### Model
 
-```text
-consumption_per_premise_kwh
-hour_sin
-hour_cos
-dow_sin
-dow_cos
-```
+A PyTorch LSTM followed by a feed-forward prediction head. Approximately **20K trainable parameters**.
 
-The model consumes the previous **24 hours** and predicts electricity consumption for the **next hour**.
+Training uses Adam, MSE loss, chronological validation, early stopping, and best-checkpoint restoration with a fixed random seed.
 
 ---
 
-## Forecasting model
+## Fault-Risk Pipeline
 
-The forecaster is implemented in PyTorch using an LSTM followed by a small feed-forward prediction head.
+### Data
 
-```text
-24 × 5 input sequence
-        │
-        ▼
-      LSTM
- hidden size 64
-        │
-        ▼
- Linear → ReLU → Linear
-        │
-        ▼
-next-hour consumption
-```
+A synthetic household generation dataset with 50 households, 9,650 observations at 15-minute intervals, and 63 labeled fault observations concentrated in 3 households.
 
-Training uses:
+### Features
 
-- Adam optimizer
-- mean squared error loss
-- chronological validation
-- early-stopping support
-- best-validation checkpoint restoration
-- fixed random seed for reproducibility
+The model uses **household-relative temporal degradation features** rather than household identity:
 
-The final model contains approximately **20K trainable parameters**.
+`delta_1` · `drop_from_4` · `drop_from_12` · `relative_delta_1` · `relative_drop_4` · `relative_drop_12` · `z_drop_4` · `z_drop_12`
 
----
+### Model
 
-## Forecasting evaluation
+A **Random Forest** classifier with 500 trees, balanced-subsample weighting, and OOB predictions. The production alert threshold is the 99th percentile of OOB normal-class scores.
 
-The forecasting model is evaluated against a **persistence baseline**:
-
-```text
-prediction(t + 1) = observation(t)
-```
-
-This is an important baseline for slowly varying energy time series because a model should demonstrate value beyond simply repeating the most recent observation.
-
-Final held-out test performance:
-
-```text
-LSTM normalized MSE:        0.008363
-Persistence normalized MSE: 0.057425
-
-Reduction in normalized MSE: 85.44%
-```
-
-Real-unit errors:
-
-```text
-MAE:  0.014958 kWh/premise
-RMSE: 0.024860 kWh/premise
-```
-
-The test set is not used for model selection.
-
----
-
-## Fault-risk detection
-
-The fault subsystem analyzes household generation time series and estimates whether the current observation resembles a temporal degradation event.
-
-The original household dataset contains:
-
-```text
-50 households
-9,650 observations
-15-minute sampling
-63 labeled fault observations
-3 households containing faults
-```
-
-Because faults are highly imbalanced and concentrated in a small number of households, random row-level splitting would produce misleading evaluation results.
-
-Instead, evaluation holds out each faulty household and tests whether the detector generalizes to an unseen household.
-
----
-
-## Fault features
-
-Rather than using household identity, the model focuses on changes relative to each household's recent behavior.
-
-Features include:
-
-```text
-delta_1
-drop_from_4
-drop_from_12
-relative_delta_1
-relative_drop_4
-relative_drop_12
-z_drop_4
-z_drop_12
-```
-
-These capture patterns such as:
-
-```text
-recent generation is healthy
-            │
-            ▼
-current generation drops sharply
-            │
-            ▼
-fault risk increases
-```
-
-Raw household IDs are deliberately excluded from the model.
-
----
-
-## Fault model
-
-Fault risk is estimated using a **Random Forest classifier** with:
-
-```text
-500 trees
-balanced_subsample class weighting
-minimum leaf size = 2
-out-of-bag predictions enabled
-```
-
-Rather than relying on the default `0.50` classification threshold, the production threshold is derived from the distribution of normal out-of-bag scores.
-
-```text
-alert threshold
-=
-99th percentile of OOB normal-class probabilities
-```
-
-This produces a conservative alerting strategy designed to limit false alarms.
-
-### Held-out evaluation
-
-Each faulty household is evaluated without using its labels during training.
-
-```text
-House_01 PR-AUC: 0.619
-House_07 PR-AUC: 0.991
-House_13 PR-AUC: 0.799
-
-Mean PR-AUC: 0.803
-```
-
-The detector performs best as a **fault-risk ranking system**. Recall at the conservative production threshold is intentionally limited, and the current dataset is too small to support claims of broad real-world fault-classification accuracy.
+The detector is treated as a **conservative fault-risk ranking system**, not a high-recall classifier.
 
 ---
 
 ## API
 
-The backend is implemented with FastAPI.
+The backend exposes three endpoints through FastAPI with Pydantic validation.
 
-### Health
-
-```http
-GET /health
-```
-
-Response:
+### `GET /health`
 
 ```json
-{
-  "status": "healthy"
-}
+{ "status": "healthy" }
 ```
 
-### Forecast electricity consumption
+### `POST /forecast`
 
-```http
-POST /forecast
-```
-
-The endpoint requires exactly **24 hourly observations**.
-
-Example request:
+Accepts exactly **24 chronologically ordered hourly observations** spaced one hour apart.
 
 ```json
 {
   "observations": [
-    {
-      "timestamp": "2025-05-29T01:00:00",
-      "consumption_per_premise_kwh": 0.82
-    }
+    { "timestamp": "2025-05-29T01:00:00", "consumption_per_premise_kwh": 0.82 }
   ]
 }
 ```
 
-The complete request contains 24 chronologically ordered observations spaced exactly one hour apart.
-
-Example response:
+Returns:
 
 ```json
-{
-  "prediction_kwh_per_premise": 0.7744
-}
+{ "prediction_kwh_per_premise": 0.7744 }
 ```
 
-### Estimate fault risk
+### `POST /fault`
 
-```http
-POST /fault
-```
+Accepts exactly **13 chronologically ordered generation readings** (12 historical + 1 current) spaced 15 minutes apart.
 
-The endpoint requires exactly **13 generation readings**:
-
-```text
-12 historical observations
-+
-1 current observation
-```
-
-Observations must be chronologically ordered and exactly **15 minutes apart**.
-
-Example response:
+Returns:
 
 ```json
 {
@@ -365,399 +175,157 @@ Example response:
 }
 ```
 
+Interactive documentation is available at `/docs` when the server is running.
+
 ---
 
-## Repository structure
+## Repository Structure
 
-```text
+```
 microgrid-ml-cym2025/
-│
+├── assets/                          diagrams
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── routes/
-│   │   │   │   ├── forecasting.py
-│   │   │   │   └── fault_detection.py
-│   │   │   ├── schemas/
-│   │   │   │   ├── forecasting.py
-│   │   │   │   └── fault_detection.py
-│   │   │   └── router.py
-│   │   │
+│   │   │   ├── routes/              endpoint handlers
+│   │   │   └── schemas/             Pydantic models
 │   │   ├── ml/
-│   │   │   ├── forecasting/
-│   │   │   │   ├── baseline.py
-│   │   │   │   ├── dataset.py
-│   │   │   │   ├── evaluation.py
-│   │   │   │   ├── ieso.py
-│   │   │   │   ├── inference.py
-│   │   │   │   ├── loaders.py
-│   │   │   │   ├── model.py
-│   │   │   │   ├── preprocessing.py
-│   │   │   │   ├── scaling.py
-│   │   │   │   ├── split.py
-│   │   │   │   ├── train.py
-│   │   │   │   └── train_ieso.py
-│   │   │   │
-│   │   │   └── fault_detection/
-│   │   │       ├── evaluate.py
-│   │   │       ├── inference.py
-│   │   │       ├── preprocessing.py
-│   │   │       └── train.py
-│   │   │
-│   │   ├── services/
-│   │   │   ├── forecasting.py
-│   │   │   └── fault_detection.py
-│   │   │
-│   │   └── main.py
-│   │
-│   ├── artifacts/
-│   │   ├── forecasting/
-│   │   │   ├── model.pt
-│   │   │   ├── config.json
-│   │   │   ├── metrics.json
-│   │   │   └── scaler.json
-│   │   │
-│   │   └── fault_detection/
-│   │       ├── model.joblib
-│   │       └── config.json
-│   │
-│   └── tests/
-│       └── test_api.py
-│
-├── data/
-│
-├── app.py
+│   │   │   ├── forecasting/         LSTM pipeline
+│   │   │   └── fault_detection/     Random Forest pipeline
+│   │   ├── services/                inference orchestration
+│   │   └── main.py                  FastAPI entrypoint
+│   ├── artifacts/                   saved models + configs
+│   └── tests/                       API test suite
+├── data/                            datasets
+├── frontend/                        React + Vite (WIP)
+├── app.py                           legacy Streamlit dashboard
 ├── requirements.txt
 └── README.md
 ```
 
-`app.py` contains the original Streamlit dashboard and is retained temporarily as a legacy interface.
-
 ---
 
-## Local setup
+## Quick Start
 
-### 1. Clone the repository
+### Clone and set up
 
 ```bash
-git clone <repository>
+git clone https://github.com/cybr-wisp/microgrid-ml-cym2025.git
 cd microgrid-ml-cym2025
-```
-
-### 2. Create a virtual environment
-
-```bash
 python -m venv .venv
 ```
 
-Windows:
-
 ```powershell
+# Windows
 .\.venv\Scripts\Activate.ps1
 ```
 
-macOS / Linux:
-
 ```bash
+# macOS / Linux
 source .venv/bin/activate
 ```
 
-### 3. Install dependencies
-
 ```bash
-python -m pip install --upgrade pip
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
-
-## Run the API
-
-From the repository root:
+### Run the API
 
 ```bash
 python -m uvicorn backend.app.main:app --reload
 ```
 
-The backend exposes:
-
-```text
-GET  /health
-POST /forecast
-POST /fault
-```
-
-FastAPI's interactive API documentation is available through the local `/docs` endpoint while the server is running.
-
----
-
-## Train the forecasting model
+### Train models
 
 ```bash
+# Forecasting
 python -m backend.app.ml.forecasting.train_ieso
-```
 
-Training produces:
-
-```text
-backend/artifacts/forecasting/
-├── model.pt
-├── scaler.json
-├── config.json
-└── metrics.json
-```
-
-The training script:
-
-- preprocesses the IESO dataset
-- builds chronological datasets
-- fits the scaler using training data only
-- trains the LSTM
-- restores the best validation state
-- evaluates against the test set
-- compares against persistence
-- saves model metadata and metrics
-
----
-
-## Train the fault-risk model
-
-```bash
+# Fault detection
 python -m backend.app.ml.fault_detection.train
-```
 
-Artifacts are written to:
-
-```text
-backend/artifacts/fault_detection/
-├── model.joblib
-└── config.json
-```
-
-To reproduce held-out-household evaluation:
-
-```bash
+# Fault evaluation (held-out-household)
 python -m backend.app.ml.fault_detection.evaluate
 ```
 
----
-
-## Tests
-
-Run the backend test suite with:
+### Run tests
 
 ```bash
 python -m pytest backend/tests -v
 ```
 
-Current API coverage includes:
-
-- health endpoint
-- forecasting inference
-- 24-observation forecast validation
-- fault-risk inference
-- negative generation rejection
-- hourly forecast interval validation
-- 15-minute fault interval validation
-
-Current status:
-
-```text
+```
 7 passed
 ```
 
 ---
 
-## Design decisions
+## Design Decisions
 
-### Why chronological splitting?
+**Chronological splitting.** Random splits leak temporally adjacent windows between train and test. All forecasting data is divided chronologically.
 
-Randomly splitting adjacent time-series windows can leak highly similar observations between training and test sets.
+**Train-only scaling.** Normalization statistics are computed exclusively from training-period observations.
 
-Forecasting data is therefore divided chronologically:
+**Consumption per premise.** Raw consumption correlates with customer count. Normalizing by premise count produces a comparable target across regions.
 
-```text
-past ──────────────────────────────► future
+**Held-out households.** With only 3 faulty households, random row-level splitting would let nearly identical fault patterns from the same household appear in both sets. Holding out an entire household is a harder and more meaningful generalization test.
 
-|       train       | validation | test |
-```
-
-### Why train-only scaling?
-
-Normalization statistics are calculated using training-period observations only.
-
-Validation and test values never influence the fitted scaler.
-
-### Why consumption per premise?
-
-Raw electricity consumption strongly depends on the number of customers within a geographic region.
-
-Normalizing by premise count creates a more comparable forecasting target across regions.
-
-### Why hold out entire households for fault evaluation?
-
-Only three households in the current synthetic community dataset contain labeled faults.
-
-A random observation-level split could allow nearly identical fault patterns from the same household to appear in both training and test data.
-
-Holding out an entire faulty household produces a harder and more meaningful generalization test.
+**OOB threshold.** Rather than using the default 0.50 classification boundary, the production threshold is derived from training-side OOB statistics, keeping false alarms low.
 
 ---
 
 ## Limitations
 
-This project is an applied ML prototype and has several important limitations.
+**Forecasting.** Training covers one month of hourly data. The model does not yet incorporate weather, temperature, holidays, electricity prices, or longer seasonal context.
 
-### Forecasting
-
-The current IESO training data covers one month of hourly observations. Although the global model sees hundreds of geographic series, longer seasonal coverage would provide a much stronger evaluation of annual and weather-driven behavior.
-
-The current model uses calendar and historical consumption features but does not yet incorporate:
-
-- weather
-- temperature
-- holidays
-- electricity prices
-- longer seasonal context
-
-### Fault detection
-
-The available fault dataset is small and synthetic:
-
-```text
-63 labeled faults
-3 faulty households
-```
-
-Fault labels are concentrated at synchronized timestamps, so the detector should not be interpreted as a validated real-world equipment-failure classifier.
-
-The current model is best viewed as a demonstration of **temporal fault-risk scoring and anomaly detection methodology**.
+**Fault detection.** The dataset contains 63 labeled faults across 3 households. Results demonstrate methodology, not validated real-world fault-classification accuracy.
 
 ---
 
 ## Roadmap
 
 ### Backend
-
-- [x] FastAPI application
-- [x] PyTorch forecasting model
-- [x] chronological evaluation pipeline
-- [x] persistence baseline
-- [x] saved forecasting artifacts
-- [x] forecasting inference endpoint
-- [x] temporal fault-risk features
-- [x] Random Forest risk model
-- [x] saved fault-model artifacts
-- [x] fault-risk inference endpoint
-- [x] API validation
-- [x] backend test coverage
+- [x] FastAPI application with Pydantic validation
+- [x] PyTorch LSTM forecaster with chronological evaluation
+- [x] Persistence baseline comparison
+- [x] Random Forest fault-risk detector with OOB thresholding
+- [x] Saved model artifacts and inference endpoints
+- [x] API test coverage (7 tests)
 
 ### Frontend
-
-- [ ] replace legacy Streamlit interface
-- [ ] React + Vite dashboard
-- [ ] forecasting visualization
-- [ ] fault-risk timeline
-- [ ] model-performance views
-- [ ] responsive layout
-- [ ] API integration
-
-### Infrastructure
-
-- [ ] Railway backend deployment
-- [ ] production frontend deployment
-- [ ] environment-based API configuration
-- [ ] CI test workflow
+- [ ] React + Vite dashboard (replacing legacy Streamlit)
+- [ ] Forecasting visualization
+- [ ] Fault-risk timeline
+- [ ] Model-performance views
 
 ### ML
+- [ ] Multi-month IESO training data
+- [ ] Weather and temperature features
+- [ ] GRU and XGBoost forecasting benchmarks
+- [ ] Feature ablation studies
+- [ ] Larger fault dataset
+- [ ] Probability calibration
 
-- [ ] multi-month IESO training data
-- [ ] weather features
-- [ ] additional forecasting baselines
-- [ ] per-region performance diagnostics
-- [ ] larger fault dataset
-- [ ] probability calibration
-- [ ] anomaly-detection comparisons
-
----
-
-## Legacy dashboard
-
-The repository still includes the original Streamlit dashboard from the 2025 project.
-
-It is retained for historical/reference purposes while the frontend is being rebuilt.
-
-The 2026 backend should be treated as the current ML implementation.
+### Infrastructure
+- [ ] Railway backend deployment
+- [ ] Production frontend hosting
+- [ ] CI test workflow
 
 ---
 
-## Project status
+## Tech Stack
 
-**Backend: operational**
-
-```text
-IESO data
-   ↓
-PyTorch LSTM
-   ↓
-saved model
-   ↓
-FastAPI /forecast
-```
-
-```text
-household generation
-   ↓
-temporal degradation features
-   ↓
-Random Forest
-   ↓
-saved model
-   ↓
-FastAPI /fault
-```
-
-**Frontend: React/Vite rebuild in progress.**
-
----
-
-## Tech stack
-
-**Machine learning**
-
-- PyTorch
-- scikit-learn
-- NumPy
-- pandas
-
-**Backend**
-
-- FastAPI
-- Pydantic
-- Uvicorn
-
-**Testing**
-
-- pytest
-- httpx
-
-**Frontend**
-
-- Streamlit — legacy
-- React + Vite — planned replacement
+| Layer | Tools |
+|---|---|
+| ML | PyTorch, scikit-learn, NumPy, pandas |
+| Backend | FastAPI, Pydantic, Uvicorn |
+| Frontend | React, Vite (WIP) |
+| Testing | pytest, httpx |
+| Legacy | Streamlit |
 
 ---
 
 ## Background
 
-Microgrid ML began as a CYM 2025 project exploring machine learning for community energy systems.
-
-The 2026 rebuild focuses on making the ML workflow more rigorous and reproducible:
-
-- explicit data provenance
-- leakage-aware evaluation
-- meaningful baselines
-- saved model artifacts
-- honest treatment of dataset limitations
-- production-style model inference
-- a clean API boundary between ML and the user interface
+Microgrid ML began as a CYM 2025 project exploring machine learning for community energy systems. The 2026 rebuild focuses on reproducibility: explicit data provenance, leakage-aware evaluation, meaningful baselines, saved artifacts, honest treatment of dataset limitations, and a clean API boundary between ML and the interface.
