@@ -283,37 +283,6 @@ python -m pytest backend/tests -v
 
 ---
 
-## Roadmap
-
-### Backend
-- [x] FastAPI application with Pydantic validation
-- [x] PyTorch LSTM forecaster with chronological evaluation
-- [x] Persistence baseline comparison
-- [x] Random Forest fault-risk detector with OOB thresholding
-- [x] Saved model artifacts and inference endpoints
-- [x] API test coverage (7 tests)
-
-### Frontend
-- [ ] React + Vite dashboard (replacing legacy Streamlit)
-- [ ] Forecasting visualization
-- [ ] Fault-risk timeline
-- [ ] Model-performance views
-
-### ML
-- [ ] Multi-month IESO training data
-- [ ] Weather and temperature features
-- [ ] GRU and XGBoost forecasting benchmarks
-- [ ] Feature ablation studies
-- [ ] Larger fault dataset
-- [ ] Probability calibration
-
-### Infrastructure
-- [ ] Railway backend deployment
-- [ ] Production frontend hosting
-- [ ] CI test workflow
-
----
-
 ## Tech Stack
 
 | Layer | Tools |
@@ -328,4 +297,6 @@ python -m pytest backend/tests -v
 
 ## Background
 
-Microgrid ML began as a CYM 2025 project exploring machine learning for community energy systems. The 2026 rebuild focuses on reproducibility: explicit data provenance, leakage-aware evaluation, meaningful baselines, saved artifacts, honest treatment of dataset limitations, and a clean API boundary between ML and the interface.
+Microgrid ML began as a CYM 2025 project exploring machine learning for community energy systems. The research abstract was selected **top 5 out of 60+ submissions**, and the final presentation placed **3rd overall**, earning a **$1,000 prize**.
+
+The 2026 rebuild focuses on reproducibility: explicit data provenance, leakage-aware evaluation, meaningful baselines, saved artifacts, honest treatment of dataset limitations, and a clean API boundary between ML and the interface.
