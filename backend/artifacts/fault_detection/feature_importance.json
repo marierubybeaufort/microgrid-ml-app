@@ -1,0 +1,34 @@
+[
+  {
+    "feature": "drop_from_12",
+    "importance": 0.230547
+  },
+  {
+    "feature": "drop_from_4",
+    "importance": 0.159945
+  },
+  {
+    "feature": "relative_drop_12",
+    "importance": 0.139813
+  },
+  {
+    "feature": "z_drop_12",
+    "importance": 0.127112
+  },
+  {
+    "feature": "relative_drop_4",
+    "importance": 0.117876
+  },
+  {
+    "feature": "relative_delta_1",
+    "importance": 0.080596
+  },
+  {
+    "feature": "delta_1",
+    "importance": 0.072392
+  },
+  {
+    "feature": "z_drop_4",
+    "importance": 0.071719
+  }
+]

@@ -1,0 +1,182 @@
+{
+  "feature_importance": [
+    {
+      "feature": "drop_from_12",
+      "importance": 0.230547
+    },
+    {
+      "feature": "drop_from_4",
+      "importance": 0.159945
+    },
+    {
+      "feature": "relative_drop_12",
+      "importance": 0.139813
+    },
+    {
+      "feature": "z_drop_12",
+      "importance": 0.127112
+    },
+    {
+      "feature": "relative_drop_4",
+      "importance": 0.117876
+    },
+    {
+      "feature": "relative_delta_1",
+      "importance": 0.080596
+    },
+    {
+      "feature": "delta_1",
+      "importance": 0.072392
+    },
+    {
+      "feature": "z_drop_4",
+      "importance": 0.071719
+    }
+  ],
+  "random_forest": {
+    "per_household": [
+      {
+        "household": "House_01",
+        "pr_auc": 0.618918,
+        "faults": 21,
+        "test_rows": 181
+      },
+      {
+        "household": "House_07",
+        "pr_auc": 0.990842,
+        "faults": 21,
+        "test_rows": 181
+      },
+      {
+        "household": "House_13",
+        "pr_auc": 0.798672,
+        "faults": 21,
+        "test_rows": 181
+      }
+    ],
+    "mean_pr_auc": 0.802811,
+    "std_pr_auc": 0.151866
+  },
+  "xgboost": {
+    "per_household": [
+      {
+        "household": "House_01",
+        "pr_auc": 0.673349,
+        "faults": 21,
+        "test_rows": 181
+      },
+      {
+        "household": "House_07",
+        "pr_auc": 0.764133,
+        "faults": 21,
+        "test_rows": 181
+      },
+      {
+        "household": "House_13",
+        "pr_auc": 0.847794,
+        "faults": 21,
+        "test_rows": 181
+      }
+    ],
+    "mean_pr_auc": 0.761759,
+    "std_pr_auc": 0.071237
+  },
+  "n_estimators_sweep": {
+    "100": {
+      "per_household": [
+        {
+          "household": "House_01",
+          "pr_auc": 0.533224,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_07",
+          "pr_auc": 0.935753,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_13",
+          "pr_auc": 0.663684,
+          "faults": 21,
+          "test_rows": 181
+        }
+      ],
+      "mean_pr_auc": 0.710887,
+      "std_pr_auc": 0.167687
+    },
+    "200": {
+      "per_household": [
+        {
+          "household": "House_01",
+          "pr_auc": 0.550552,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_07",
+          "pr_auc": 0.938048,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_13",
+          "pr_auc": 0.657853,
+          "faults": 21,
+          "test_rows": 181
+        }
+      ],
+      "mean_pr_auc": 0.715484,
+      "std_pr_auc": 0.163359
+    },
+    "500": {
+      "per_household": [
+        {
+          "household": "House_01",
+          "pr_auc": 0.618918,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_07",
+          "pr_auc": 0.990842,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_13",
+          "pr_auc": 0.798672,
+          "faults": 21,
+          "test_rows": 181
+        }
+      ],
+      "mean_pr_auc": 0.802811,
+      "std_pr_auc": 0.151866
+    },
+    "1000": {
+      "per_household": [
+        {
+          "household": "House_01",
+          "pr_auc": 0.627735,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_07",
+          "pr_auc": 0.992381,
+          "faults": 21,
+          "test_rows": 181
+        },
+        {
+          "household": "House_13",
+          "pr_auc": 0.813716,
+          "faults": 21,
+          "test_rows": 181
+        }
+      ],
+      "mean_pr_auc": 0.811277,
+      "std_pr_auc": 0.148876
+    }
+  }
+}
